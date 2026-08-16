@@ -121,6 +121,45 @@ function attributeMatchesValue( attributeValue, expected ) {
 }
 
 /**
+ * Reduce a rich-text attribute to searchable text so a phrase typed by a person
+ * can match markup like "<strong>Chloe Nolan</strong>" or "Founder &amp; CEO".
+ *
+ * @param {string} value
+ * @return {string}
+ */
+function toSearchableText( value ) {
+	return value
+		.replace( /<[^>]*>/g, ' ' )
+		.replace( /&nbsp;/g, ' ' )
+		.replace( /&amp;/g, '&' )
+		.replace( /&lt;/g, '<' )
+		.replace( /&gt;/g, '>' )
+		.replace( /&quot;/g, '"' )
+		.replace( /&#0?39;/g, "'" )
+		.toLowerCase();
+}
+
+/**
+ * Case-insensitive substring match against every string attribute of a block.
+ *
+ * @param {Object} block
+ * @param {string} search
+ * @return {boolean}
+ */
+function blockMatchesSearch( block, search ) {
+	const needle = search.toLowerCase();
+	return Object.values( block.attributes || {} ).some( ( value ) => {
+		if ( typeof value !== 'string' ) {
+			return false;
+		}
+		return (
+			value.toLowerCase().includes( needle ) ||
+			toSearchableText( value ).includes( needle )
+		);
+	} );
+}
+
+/**
  * Resolve a client ID to a block, throwing when it is missing or unknown.
  *
  * @param {Object} store    Block editor store selectors.
@@ -246,11 +285,16 @@ export function registerEditorAbilities() {
 		name: 'editor/find-editor-blocks',
 		label: 'Find Editor Blocks',
 		description:
-			'Finds blocks in the editor by block name and/or attribute value.',
+			'Finds blocks in the editor by visible text, block name, and/or attribute value.',
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
 			properties: {
+				search: {
+					type: 'string',
+					description:
+						'Text to look for in the block attributes, matched case-insensitively as a substring and ignoring HTML markup. Use this to find a block by the words shown in the editor.',
+				},
 				name: {
 					type: 'string',
 					description:
@@ -264,7 +308,7 @@ export function registerEditorAbilities() {
 				value: {
 					type: 'string',
 					description:
-						'Attribute value to match when attribute is provided. Compared as a string; objects and arrays are compared as JSON.',
+						'Exact attribute value to match, requires attribute. Compared as a string; objects and arrays are compared as JSON. Without attribute it is treated as search.',
 				},
 				clientId: {
 					type: 'string',
@@ -301,6 +345,10 @@ export function registerEditorAbilities() {
 				? [ requireBlock( store, input.clientId ) ]
 				: store.getBlocks();
 
+			// A value without an attribute is a text search, never "no filter".
+			const search =
+				input.search ?? ( input.attribute ? undefined : input.value );
+
 			const matches = collectBlocks( roots, ( block ) => {
 				if ( input.name && block.name !== input.name ) {
 					return false;
@@ -310,13 +358,18 @@ export function registerEditorAbilities() {
 					if ( ! ( input.attribute in attributes ) ) {
 						return false;
 					}
-					if ( input.value === undefined ) {
-						return true;
+					if (
+						input.value !== undefined &&
+						! attributeMatchesValue(
+							attributes[ input.attribute ],
+							input.value
+						)
+					) {
+						return false;
 					}
-					return attributeMatchesValue(
-						attributes[ input.attribute ],
-						input.value
-					);
+				}
+				if ( search && ! blockMatchesSearch( block, search ) ) {
+					return false;
 				}
 				return true;
 			} );
@@ -520,6 +573,291 @@ export function registerEditorAbilities() {
 		},
 	} );
 	abilityNames.push( 'editor/insert-block' );
+
+	ensureAbility( {
+		name: 'editor/move-block',
+		label: 'Move Block',
+		description:
+			'Moves an existing block to a new position, optionally into a different parent.',
+		category: 'block-editor',
+		input_schema: {
+			type: 'object',
+			properties: {
+				clientId: {
+					type: 'string',
+					description: 'Client ID of the block to move.',
+				},
+				afterClientId: {
+					type: 'string',
+					description:
+						'Move immediately after this block. Its parent becomes the destination parent.',
+				},
+				beforeClientId: {
+					type: 'string',
+					description:
+						'Move immediately before this block. Its parent becomes the destination parent.',
+				},
+				rootClientId: {
+					type: 'string',
+					description:
+						'Destination parent client ID. Omit to move within the document root.',
+				},
+				index: {
+					type: 'integer',
+					description:
+						'Destination index within the parent, counted after the move. Ignored when afterClientId or beforeClientId is set. Defaults to last.',
+				},
+			},
+			required: [ 'clientId' ],
+			additionalProperties: false,
+		},
+		output_schema: {
+			type: 'object',
+			properties: {
+				clientId: { type: 'string' },
+				name: { type: 'string' },
+				rootClientId: { type: [ 'string', 'null' ] },
+				index: { type: 'integer' },
+				previousRootClientId: { type: [ 'string', 'null' ] },
+				previousIndex: { type: 'integer' },
+			},
+			required: [ 'clientId', 'name', 'index' ],
+		},
+		meta: {
+			annotations: {
+				readonly: false,
+				destructive: false,
+				idempotent: true,
+			},
+		},
+		callback: async ( input = {} ) => {
+			assertEditorReady();
+			const { select, dispatch } = getData();
+			const store = select( BLOCK_EDITOR_STORE );
+			const actions = dispatch( BLOCK_EDITOR_STORE );
+
+			const block = requireBlock( store, input.clientId );
+
+			if ( input.afterClientId && input.beforeClientId ) {
+				throw new Error(
+					'Provide only one of afterClientId or beforeClientId.'
+				);
+			}
+			if (
+				input.index !== undefined &&
+				! Number.isInteger( input.index )
+			) {
+				throw new Error( 'index must be an integer.' );
+			}
+			if ( input.index !== undefined && input.index < 0 ) {
+				throw new Error( 'index must be zero or greater.' );
+			}
+
+			const fromRootClientId =
+				store.getBlockRootClientId( input.clientId ) || '';
+			const fromIndex = store.getBlockIndex( input.clientId );
+
+			const sibling = input.afterClientId || input.beforeClientId;
+			let toRootClientId;
+			let index;
+
+			if ( sibling ) {
+				const label = input.afterClientId
+					? 'afterClientId'
+					: 'beforeClientId';
+				if ( sibling === input.clientId ) {
+					throw new Error(
+						`${ label } must be a different block than clientId.`
+					);
+				}
+				requireBlock( store, sibling, label );
+
+				toRootClientId = store.getBlockRootClientId( sibling ) || '';
+				if (
+					input.rootClientId &&
+					input.rootClientId !== toRootClientId
+				) {
+					throw new Error(
+						`${ label } is not a child of the provided rootClientId.`
+					);
+				}
+
+				const siblingIndex = store.getBlockIndex( sibling );
+				index = input.afterClientId ? siblingIndex + 1 : siblingIndex;
+
+				// Within one parent the block vacates its slot first, so
+				// siblings below it shift up by one.
+				if (
+					toRootClientId === fromRootClientId &&
+					siblingIndex > fromIndex
+				) {
+					index -= 1;
+				}
+			} else {
+				toRootClientId = input.rootClientId || '';
+				if ( toRootClientId ) {
+					requireBlock( store, toRootClientId, 'rootClientId' );
+				}
+
+				const order = store.getBlockOrder( toRootClientId ) || [];
+				const lastIndex =
+					toRootClientId === fromRootClientId
+						? order.length - 1
+						: order.length;
+				index =
+					input.index === undefined
+						? lastIndex
+						: Math.min( input.index, lastIndex );
+			}
+
+			if ( toRootClientId === input.clientId ) {
+				throw new Error( 'A block cannot be moved into itself.' );
+			}
+			if (
+				toRootClientId &&
+				( store.getBlockParents( toRootClientId ) || [] ).includes(
+					input.clientId
+				)
+			) {
+				throw new Error(
+					'A block cannot be moved into one of its own descendants.'
+				);
+			}
+
+			if (
+				toRootClientId !== fromRootClientId &&
+				! store.canInsertBlockType(
+					block.name,
+					toRootClientId || undefined
+				)
+			) {
+				throw new Error(
+					`Block "${ block.name }" cannot be moved into the requested parent.`
+				);
+			}
+
+			await actions.moveBlocksToPosition(
+				[ input.clientId ],
+				fromRootClientId,
+				toRootClientId,
+				index
+			);
+
+			const newRootClientId =
+				store.getBlockRootClientId( input.clientId ) || '';
+			const newIndex = store.getBlockIndex( input.clientId );
+
+			// The store declines locked moves silently; report that as a failure.
+			if ( newRootClientId !== toRootClientId || newIndex !== index ) {
+				throw new Error(
+					'The editor did not move this block. It or its parent may be locked.'
+				);
+			}
+
+			return {
+				clientId: input.clientId,
+				name: block.name,
+				rootClientId: newRootClientId || null,
+				index: newIndex,
+				previousRootClientId: fromRootClientId || null,
+				previousIndex: fromIndex,
+			};
+		},
+	} );
+	abilityNames.push( 'editor/move-block' );
+
+	ensureAbility( {
+		name: 'editor/update-block',
+		label: 'Update Block',
+		description:
+			'Updates attributes on an existing block. Supplied attributes are merged into the current ones.',
+		category: 'block-editor',
+		input_schema: {
+			type: 'object',
+			properties: {
+				clientId: {
+					type: 'string',
+					description: 'Client ID of the block to update.',
+				},
+				attributes: {
+					type: 'object',
+					description:
+						'Attributes to merge into the block. Omitted attributes keep their current values.',
+				},
+			},
+			required: [ 'clientId', 'attributes' ],
+			additionalProperties: false,
+		},
+		output_schema: {
+			type: 'object',
+			properties: {
+				clientId: { type: 'string' },
+				name: { type: 'string' },
+				attributes: { type: 'object' },
+				updatedAttributes: { type: 'array' },
+			},
+			required: [ 'clientId', 'name', 'attributes' ],
+		},
+		meta: {
+			annotations: {
+				readonly: false,
+				destructive: true,
+				idempotent: true,
+			},
+		},
+		callback: async ( input = {} ) => {
+			assertEditorReady();
+			const { select, dispatch } = getData();
+			const { getBlockType } = getBlocksApi();
+			const store = select( BLOCK_EDITOR_STORE );
+			const actions = dispatch( BLOCK_EDITOR_STORE );
+
+			const block = requireBlock( store, input.clientId );
+
+			const attributes = input.attributes;
+			if (
+				! attributes ||
+				typeof attributes !== 'object' ||
+				Array.isArray( attributes )
+			) {
+				throw new Error( 'attributes must be an object.' );
+			}
+
+			const keys = Object.keys( attributes );
+			if ( ! keys.length ) {
+				throw new Error( 'attributes must contain at least one key.' );
+			}
+
+			// Unknown keys are stored but never serialized, so fail loudly with
+			// the list the block actually accepts.
+			const supported = getBlockType( block.name )?.attributes;
+			if ( supported ) {
+				const unknown = keys.filter(
+					( key ) => ! ( key in supported )
+				);
+				if ( unknown.length ) {
+					throw new Error(
+						`Block "${ block.name }" has no attribute(s): ${ unknown.join(
+							', '
+						) }. Supported attributes: ${ Object.keys(
+							supported
+						).join( ', ' ) }.`
+					);
+				}
+			}
+
+			await actions.updateBlockAttributes( input.clientId, attributes );
+
+			const updated = requireBlock( store, input.clientId );
+			return {
+				clientId: input.clientId,
+				name: updated.name,
+				attributes: updated.attributes ?? {},
+				updatedAttributes: keys,
+			};
+		},
+	} );
+	abilityNames.push( 'editor/update-block' );
 
 	ensureAbility( {
 		name: 'editor/get-editor-selection',

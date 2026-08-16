@@ -65,9 +65,9 @@ npm run zip          # Write dist/contributor-day.zip (gitignored)
 After JS changes, hard-refresh the block editor (`post-new.php` or edit post):
 
 1. Console: `[contributor-day] Registered editor abilities with WebMCP: …` **or** a clear “WebMCP unavailable” message
-2. `window.contributorDayEditorAbilities.webmcp.registered` lists the six abilities
+2. `window.contributorDayEditorAbilities.webmcp.registered` lists the eight abilities
 3. With WebMCP flag + inspector: tools remain visible (they must not disappear after load)
-4. Spot-check one read tool (`editor_get-editor-tree`) and one write tool (`editor_insert-block`)
+4. Spot-check one read tool (`editor_get-editor-tree`) and one write tool (`editor_move-block`)
 
 ## What not to do
 

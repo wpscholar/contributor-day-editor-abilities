@@ -9,15 +9,17 @@ Requires **WordPress 7.0+** (client-side Abilities API).
 On block editor screens the plugin:
 
 1. Registers a `block-editor` ability category
-2. Registers six editor abilities (inspect / query / mutate the live editor)
+2. Registers eight editor abilities (inspect / query / mutate the live editor)
 3. Bridges each ability to `document.modelContext.registerTool()` when WebMCP is available
 
 | Ability | WebMCP tool name | Purpose |
 | --- | --- | --- |
 | `editor/get-editor-tree` | `editor_get-editor-tree` | Full hierarchical block tree (optional `maxDepth`) |
-| `editor/find-editor-blocks` | `editor_find-editor-blocks` | Find blocks by name / attribute; returns flat summaries |
+| `editor/find-editor-blocks` | `editor_find-editor-blocks` | Find blocks by text / name / attribute; returns flat summaries |
 | `editor/get-block-location` | `editor_get-block-location` | Parents, root, and index for a block |
 | `editor/insert-block` | `editor_insert-block` | Insert a block (optional parent / after) |
+| `editor/move-block` | `editor_move-block` | Move a block within or between parents |
+| `editor/update-block` | `editor_update-block` | Merge attribute changes into a block |
 | `editor/get-editor-selection` | `editor_get-editor-selection` | Current selection state |
 | `editor/can-insert-block` | `editor_can-insert-block` | Whether a block type can be inserted |
 
@@ -27,7 +29,10 @@ Behavior worth knowing when calling these:
 
 - Unknown client IDs are an error, never a silent no-op. Passing a stale `afterClientId` to `editor/insert-block` fails instead of inserting at the top of the document.
 - `editor/find-editor-blocks` returns each match once as `{ clientId, name, attributes, innerBlockCount }`, so a match nested inside another match is not duplicated. A supplied `clientId` scopes the search and includes that block itself.
+- `search` is the way to find a block by the words shown in the editor: it is a case-insensitive substring match over the block's string attributes, and it also matches with markup and common HTML entities resolved, so `Chloe` finds `<strong>Chloe Nolan</strong>`. A `value` passed without an `attribute` is treated as `search` rather than matching every block.
 - `attribute` matches on presence; add `value` to compare, which is done as a string (objects and arrays compare as JSON).
+- `editor/move-block` takes `afterClientId` / `beforeClientId` (the sibling's parent becomes the destination) or an explicit `rootClientId` + `index`. Indexes are the block's position after the move. Moving a block into itself or a descendant is an error, as is a move the editor refuses because of a lock.
+- `editor/update-block` merges the attributes you pass; anything you omit is left alone. Attribute keys the block type does not define are rejected with the list of keys it accepts, since unknown keys are stored but never saved.
 - Ability failures come back as MCP tool errors with a readable message rather than rejecting the tool call.
 
 ## Project layout
