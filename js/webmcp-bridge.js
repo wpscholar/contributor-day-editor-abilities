@@ -1,9 +1,6 @@
 /**
  * Bridge WordPress client-side abilities to the WebMCP Imperative API.
  *
- * Uses document.modelContext.registerTool (with navigator.modelContext fallback)
- * so browser agents can discover and invoke editor abilities.
- *
  * @see https://developer.chrome.com/docs/ai/webmcp
  */
 
@@ -23,7 +20,8 @@ function getModelContext() {
 }
 
 /**
- * Gemini and some agents reject tool names containing "/".
+ * WebMCP tool names may include alphanumerics, _, -, and .
+ * Convert ability names like "editor/get-editor-tree" → "editor_get-editor-tree".
  *
  * @param {string} abilityName
  * @return {string}
@@ -33,10 +31,8 @@ export function toToolName( abilityName ) {
 }
 
 /**
- * Map ability annotations to WebMCP tool annotations.
- *
  * @param {Object} [ability]
- * @return {Object|undefined}
+ * @return {{ readOnlyHint: boolean }|undefined}
  */
 function toToolAnnotations( ability ) {
 	const annotations = ability?.meta?.annotations;
@@ -44,16 +40,13 @@ function toToolAnnotations( ability ) {
 		return undefined;
 	}
 
+	// Only WebMCP-supported annotation keys (unknown keys can break registration).
 	return {
 		readOnlyHint: !! annotations.readonly,
-		destructiveHint: !! annotations.destructive,
-		idempotentHint: !! annotations.idempotent,
 	};
 }
 
 /**
- * Format ability results for WebMCP / MCP-style clients.
- *
  * @param {unknown} result
  * @return {{ content: Array<{ type: string, text: string }>, structuredContent: unknown }}
  */
@@ -68,18 +61,69 @@ function formatToolResult( result ) {
 }
 
 /**
- * Register a single ability as a WebMCP tool.
- *
- * @param {string} abilityName
- * @param {AbortSignal} [signal]
- * @return {Promise<boolean>} Whether registration succeeded.
+ * @param {Object} [schema]
+ * @return {Object}
  */
-export async function registerAbilityAsWebMCPTool( abilityName, signal ) {
-	const modelContext = getModelContext();
-	if ( ! modelContext?.registerTool ) {
-		return false;
+function toToolInputSchema( schema ) {
+	if ( ! schema || typeof schema !== 'object' ) {
+		return { type: 'object', properties: {} };
 	}
 
+	const properties = {};
+	for ( const [ key, value ] of Object.entries( schema.properties || {} ) ) {
+		if ( ! value || typeof value !== 'object' ) {
+			continue;
+		}
+
+		const property = { ...value };
+		if ( Array.isArray( property.type ) ) {
+			const nonNull = property.type.filter( ( type ) => type !== 'null' );
+			property.type = nonNull[ 0 ] || 'string';
+		}
+
+		properties[ key ] = property;
+	}
+
+	const normalized = {
+		type: 'object',
+		properties,
+	};
+
+	if ( Array.isArray( schema.required ) && schema.required.length ) {
+		normalized.required = [ ...schema.required ];
+	}
+
+	return normalized;
+}
+
+/**
+ * Wait briefly for WebMCP to become available (flag / document ready races).
+ *
+ * @param {number} [timeoutMs]
+ * @return {Promise<ModelContext|null>}
+ */
+async function waitForModelContext( timeoutMs = 3000 ) {
+	const started = Date.now();
+
+	while ( Date.now() - started < timeoutMs ) {
+		const modelContext = getModelContext();
+		if ( modelContext?.registerTool ) {
+			return modelContext;
+		}
+		await new Promise( ( resolve ) => window.setTimeout( resolve, 50 ) );
+	}
+
+	return getModelContext();
+}
+
+/**
+ * Register one ability as a page-lifetime WebMCP tool (no AbortSignal).
+ *
+ * @param {string} abilityName
+ * @param {ModelContext} modelContext
+ * @return {Promise<boolean>}
+ */
+async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 	const ability = getAbility( abilityName );
 	if ( ! ability ) {
 		throw new Error( `Ability not found: ${ abilityName }` );
@@ -88,12 +132,9 @@ export async function registerAbilityAsWebMCPTool( abilityName, signal ) {
 	const tool = {
 		name: toToolName( abilityName ),
 		description: ability.description || ability.label || abilityName,
-		inputSchema: ability.input_schema || {
-			type: 'object',
-			properties: {},
-		},
+		inputSchema: toToolInputSchema( ability.input_schema ),
 		execute: async ( input = {} ) => {
-			const result = await executeAbility( abilityName, input );
+			const result = await executeAbility( abilityName, input || {} );
 			return formatToolResult( result );
 		},
 	};
@@ -103,60 +144,56 @@ export async function registerAbilityAsWebMCPTool( abilityName, signal ) {
 		tool.annotations = annotations;
 	}
 
-	const options = signal ? { signal } : {};
-	await modelContext.registerTool( tool, options );
+	await modelContext.registerTool( tool );
 	return true;
 }
 
 /**
- * Bridge a list of abilities to WebMCP.
+ * Bridge abilities to WebMCP.
  *
  * @param {string[]} abilityNames
- * @param {AbortSignal} [signal]
- * @return {Promise<{ supported: boolean, registered: string[], skipped: string[] }>}
+ * @return {Promise<{ supported: boolean, registered: string[], skipped: string[], errors: Object[] }>}
  */
-export async function bridgeAbilitiesToWebMCP( abilityNames, signal ) {
-	const modelContext = getModelContext();
+export async function bridgeAbilitiesToWebMCP( abilityNames ) {
+	const modelContext = await waitForModelContext();
 	if ( ! modelContext?.registerTool ) {
 		return {
 			supported: false,
 			registered: [],
 			skipped: [ ...abilityNames ],
+			errors: [],
 		};
 	}
 
 	const registered = [];
 	const skipped = [];
+	const errors = [];
 
 	for ( const name of abilityNames ) {
-		if ( signal?.aborted ) {
-			skipped.push( name );
-			continue;
-		}
-
 		try {
-			const ok = await registerAbilityAsWebMCPTool( name, signal );
-			if ( ok ) {
-				registered.push( name );
-			} else {
-				skipped.push( name );
-			}
+			await registerAbilityAsWebMCPTool( name, modelContext );
+			registered.push( name );
 		} catch ( error ) {
-			// Duplicate registration or transient API errors should not break the page.
+			// Already registered from a prior bootstrap attempt — treat as success.
+			const message = String( error?.message || error );
+			if ( /already|InvalidStateError/i.test( message ) ) {
+				registered.push( name );
+				continue;
+			}
+
 			console.warn(
 				`[contributor-day] Failed to register WebMCP tool for ${ name }:`,
 				error
 			);
 			skipped.push( name );
+			errors.push( { name, message } );
 		}
 	}
 
-	return { supported: true, registered, skipped };
+	return { supported: true, registered, skipped, errors };
 }
 
 /**
- * Whether WebMCP is available in this browser.
- *
  * @return {boolean}
  */
 export function isWebMCPSupported() {

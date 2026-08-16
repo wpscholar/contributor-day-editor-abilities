@@ -8,40 +8,48 @@ import {
 	isWebMCPSupported,
 } from './webmcp-bridge.js';
 
-const controller = new AbortController();
+/** @type {Promise<void>|null} */
+let bootstrapPromise = null;
 
 async function bootstrap() {
-	const abilityNames = await registerEditorAbilities();
+	if ( bootstrapPromise ) {
+		return bootstrapPromise;
+	}
 
-	const bridgeResult = await bridgeAbilitiesToWebMCP(
-		abilityNames,
-		controller.signal
-	);
+	bootstrapPromise = ( async () => {
+		// Register abilities + WebMCP tools immediately. Ability callbacks already
+		// guard on the block editor store when executed.
+		const abilityNames = registerEditorAbilities();
+		const bridgeResult = await bridgeAbilitiesToWebMCP( abilityNames );
 
-	if ( typeof window !== 'undefined' ) {
 		window.contributorDayEditorAbilities = {
 			abilityNames,
 			webmcp: bridgeResult,
 			isWebMCPSupported: isWebMCPSupported(),
-			abort: () => controller.abort(),
 		};
-	}
 
-	if ( bridgeResult.supported ) {
-		console.info(
-			'[contributor-day] Registered editor abilities with WebMCP:',
-			bridgeResult.registered.map( ( name ) =>
-				name.replace( /\//g, '_' )
-			)
-		);
-	} else {
-		console.info(
-			'[contributor-day] Editor abilities registered. WebMCP is unavailable in this browser (enable chrome://flags/#enable-webmcp-testing).',
-			abilityNames
-		);
-	}
+		if ( bridgeResult.supported ) {
+			console.info(
+				'[contributor-day] Registered editor abilities with WebMCP:',
+				bridgeResult.registered.map( ( name ) =>
+					name.replace( /\//g, '_' )
+				)
+			);
+		} else {
+			console.info(
+				'[contributor-day] Editor abilities registered. WebMCP is unavailable in this browser (enable chrome://flags/#enable-webmcp-testing).',
+				abilityNames
+			);
+		}
+	} )();
+
+	return bootstrapPromise;
 }
 
 bootstrap().catch( ( error ) => {
-	console.error( '[contributor-day] Failed to bootstrap editor abilities:', error );
+	bootstrapPromise = null;
+	console.error(
+		'[contributor-day] Failed to bootstrap editor abilities:',
+		error
+	);
 } );

@@ -6,6 +6,8 @@
  */
 
 import {
+	getAbility,
+	getAbilityCategory,
 	registerAbility,
 	registerAbilityCategory,
 } from '@wordpress/abilities';
@@ -84,12 +86,35 @@ function assertEditorReady() {
 }
 
 /**
+ * Ensure a category exists without throwing if it was already registered.
+ *
+ * @param {string} slug
+ * @param {{ label: string, description: string }} args
+ */
+function ensureAbilityCategory( slug, args ) {
+	if ( ! getAbilityCategory( slug ) ) {
+		registerAbilityCategory( slug, args );
+	}
+}
+
+/**
+ * Ensure an ability exists without throwing if it was already registered.
+ *
+ * @param {Object} ability
+ */
+function ensureAbility( ability ) {
+	if ( ! getAbility( ability.name ) ) {
+		registerAbility( ability );
+	}
+}
+
+/**
  * Register the block-editor category and editor abilities.
  *
  * @return {string[]} Registered ability names.
  */
-export async function registerEditorAbilities() {
-	await registerAbilityCategory( 'block-editor', {
+export function registerEditorAbilities() {
+	ensureAbilityCategory( 'block-editor', {
 		label: 'Block Editor',
 		description:
 			'Abilities for inspecting and modifying the WordPress block editor.',
@@ -97,7 +122,7 @@ export async function registerEditorAbilities() {
 
 	const abilityNames = [];
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/get-editor-tree',
 		label: 'Get Editor Tree',
 		description:
@@ -139,7 +164,7 @@ export async function registerEditorAbilities() {
 	} );
 	abilityNames.push( 'editor/get-editor-tree' );
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/find-editor-blocks',
 		label: 'Find Editor Blocks',
 		description:
@@ -210,7 +235,7 @@ export async function registerEditorAbilities() {
 	} );
 	abilityNames.push( 'editor/find-editor-blocks' );
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/get-block-location',
 		label: 'Get Block Location',
 		description:
@@ -281,7 +306,7 @@ export async function registerEditorAbilities() {
 	} );
 	abilityNames.push( 'editor/get-block-location' );
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/insert-block',
 		label: 'Insert Block',
 		description:
@@ -395,7 +420,7 @@ export async function registerEditorAbilities() {
 	} );
 	abilityNames.push( 'editor/insert-block' );
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/get-editor-selection',
 		label: 'Get Editor Selection',
 		description:
@@ -454,7 +479,7 @@ export async function registerEditorAbilities() {
 	} );
 	abilityNames.push( 'editor/get-editor-selection' );
 
-	registerAbility( {
+	ensureAbility( {
 		name: 'editor/can-insert-block',
 		label: 'Can Insert Block',
 		description:
