@@ -1,0 +1,12 @@
+{
+  "name": "contributor-day",
+  "private": true,
+  "description": "Client-side block editor abilities bridged to WebMCP",
+  "scripts": {
+    "start": "wp-playground-cli start --skip-browser --wp=latest",
+    "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset"
+  },
+  "devDependencies": {
+    "@wp-playground/cli": "latest"
+  }
+}
