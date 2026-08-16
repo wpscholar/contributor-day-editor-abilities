@@ -9,7 +9,7 @@ Requires **WordPress 7.0+** (client-side Abilities API).
 On block editor screens the plugin:
 
 1. Registers a `block-editor` ability category
-2. Registers nine editor abilities (inspect / query / mutate the live editor)
+2. Registers fifteen editor abilities (inspect / query / mutate the live editor)
 3. Bridges each ability to `document.modelContext.registerTool()` when WebMCP is available
 
 | Ability | WebMCP tool name | Purpose |
@@ -20,9 +20,15 @@ On block editor screens the plugin:
 | `editor/insert-block` | `editor_insert-block` | Insert a block, with nested `innerBlocks` (optional parent / after) |
 | `editor/move-block` | `editor_move-block` | Move a block within or between parents |
 | `editor/update-block` | `editor_update-block` | Merge attribute changes into a block |
+| `editor/transform-block` | `editor_transform-block` | Convert a block to another block type in place |
 | `editor/remove-block` | `editor_remove-block` | Remove a block and everything nested inside it |
 | `editor/get-editor-selection` | `editor_get-editor-selection` | Current selection state |
+| `editor/select-block` | `editor_select-block` | Select a block, without touching the document |
 | `editor/can-insert-block` | `editor_can-insert-block` | Whether a block type can be inserted |
+| `editor/get-block-types` | `editor_get-block-types` | List registered block types, filtered by search / category / insertability |
+| `editor/get-block-type` | `editor_get-block-type` | One block type in full: attribute schema, nesting rules, styles, variations |
+| `editor/undo` | `editor_undo` | Undo the last change to the document |
+| `editor/redo` | `editor_redo` | Redo the last undone change |
 
 Ability names keep the `namespace/name` form. WebMCP tool names replace `/` with `_` (some agents reject `/` in tool names).
 
@@ -36,6 +42,9 @@ Behavior worth knowing when calling these:
 - `editor/insert-block` takes `innerBlocks` (recursive `{ name, attributes, innerBlocks }`), and container blocks have to be built that way. An empty `core/columns` renders a layout placeholder rather than an inner block list, so the editor registers no block list settings for it and refuses every child until it has inner blocks — a two-column layout must be inserted as one `core/columns` holding two `core/column` blocks. Nesting the block types forbid (`core/column` outside `core/columns`) fails before anything is inserted.
 - `editor/update-block` merges the attributes you pass; anything you omit is left alone. Attribute keys the block type does not define are rejected with the list of keys it accepts, since unknown keys are stored but never saved.
 - Attribute values are checked against the shape the block type declares, and defaults nested inside `query` sources are filled in. Those defaults are otherwise only applied while parsing saved markup, so a `core/table` cell set programmatically without its `tag` would render an undefined element and break the block.
+- `editor/get-block-types` is how to discover blocks the theme or a plugin registered, which no model knows in advance. It omits attribute schemas to stay small; `editor/get-block-type` returns one block in full, including the style variations and the `is-style-*` class name that applies each. Blocks hidden from the inserter are excluded unless `includeHidden` is set, and passing `rootClientId` narrows the list to what that block will actually accept.
+- `editor/transform-block` uses the block type's own registered transforms, so it keeps content that a remove-then-insert would lose. A refused target comes back with the list of types the block can become, and one transform can produce several blocks (a list becomes one paragraph per item).
+- `editor/undo` and `editor/redo` drive the editor's history, so a person can also step through the agent's work with the toolbar buttons. Each editing ability lands as its own undo step; there is no batching yet, so reverting a five-call edit takes five undos.
 - Ability failures come back as MCP tool errors with a readable message rather than rejecting the tool call.
 
 ## Project layout
