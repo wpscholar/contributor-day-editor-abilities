@@ -39,6 +39,255 @@ function getBlocksApi() {
 }
 
 /**
+ * @param {unknown} value
+ * @return {boolean}
+ */
+function isPlainObject( value ) {
+	return !! value && typeof value === 'object' && ! Array.isArray( value );
+}
+
+/**
+ * @param {unknown} value
+ * @return {string}
+ */
+function describeValue( value ) {
+	if ( value === null ) {
+		return 'null';
+	}
+	if ( Array.isArray( value ) ) {
+		return 'an array';
+	}
+	return `a ${ typeof value }`;
+}
+
+const ATTRIBUTE_TYPE_CHECKS = {
+	string: ( value ) => typeof value === 'string',
+	'rich-text': ( value ) => typeof value === 'string',
+	number: ( value ) => typeof value === 'number',
+	integer: ( value ) => Number.isInteger( value ),
+	boolean: ( value ) => typeof value === 'boolean',
+	array: ( value ) => Array.isArray( value ),
+	object: ( value ) => isPlainObject( value ),
+	null: ( value ) => value === null,
+};
+
+/**
+ * @param {string|string[]} type
+ * @param {unknown}         value
+ * @return {boolean}
+ */
+function matchesAttributeType( type, value ) {
+	const types = Array.isArray( type ) ? type : [ type ];
+	return types.some( ( name ) => {
+		const check = ATTRIBUTE_TYPE_CHECKS[ name ];
+		// An unfamiliar type keyword is not a reason to reject a value.
+		return check ? check( value ) : true;
+	} );
+}
+
+/**
+ * Complete one item of a query-sourced attribute against its sub-schema.
+ *
+ * Defaults declared inside a `query` are only applied while parsing saved
+ * markup, so attributes set programmatically arrive incomplete. A table cell
+ * without its `tag` default renders as an undefined element and breaks the
+ * block, so the defaults are filled in here.
+ *
+ * @param {unknown} item
+ * @param {Object}  query Attribute sub-schema keyed by field.
+ * @param {string}  path  Field path, used in error messages.
+ * @return {Object}
+ */
+function normalizeQueryItem( item, query, path ) {
+	if ( ! isPlainObject( item ) ) {
+		throw new Error(
+			`${ path } must be an object, received ${ describeValue( item ) }.`
+		);
+	}
+
+	const unknown = Object.keys( item ).filter( ( key ) => ! ( key in query ) );
+	if ( unknown.length ) {
+		throw new Error(
+			`${ path } has no field(s): ${ unknown.join(
+				', '
+			) }. Supported fields: ${ Object.keys( query ).join( ', ' ) }.`
+		);
+	}
+
+	const normalized = {};
+	for ( const [ key, schema ] of Object.entries( query ) ) {
+		if ( item[ key ] === undefined ) {
+			if ( schema?.default !== undefined ) {
+				normalized[ key ] = schema.default;
+			}
+			continue;
+		}
+		normalized[ key ] = normalizeAttributeValue(
+			item[ key ],
+			schema,
+			`${ path }.${ key }`
+		);
+	}
+	return normalized;
+}
+
+/**
+ * Validate one attribute value against its schema and complete nested rows.
+ *
+ * @param {unknown} value
+ * @param {Object}  [schema]
+ * @param {string}  path
+ * @return {unknown}
+ */
+function normalizeAttributeValue( value, schema, path ) {
+	if ( schema?.type && ! matchesAttributeType( schema.type, value ) ) {
+		const expected = Array.isArray( schema.type )
+			? schema.type.join( ' or ' )
+			: schema.type;
+		throw new Error(
+			`${ path } must be of type ${ expected }, received ${ describeValue(
+				value
+			) }.`
+		);
+	}
+
+	if ( schema?.query && Array.isArray( value ) ) {
+		return value.map( ( item, index ) =>
+			normalizeQueryItem( item, schema.query, `${ path }[${ index }]` )
+		);
+	}
+
+	return value;
+}
+
+/**
+ * Validate attribute keys and values against what the block type declares.
+ *
+ * @param {string} blockName
+ * @param {Object} attributes
+ * @return {Object}
+ */
+function normalizeAttributes( blockName, attributes ) {
+	const { getBlockType } = getBlocksApi();
+
+	if ( ! isPlainObject( attributes ) ) {
+		throw new Error( 'attributes must be an object.' );
+	}
+
+	// Unknown keys are stored but never serialized, so fail loudly with the
+	// list the block actually accepts.
+	const supported = getBlockType( blockName )?.attributes;
+	if ( ! supported ) {
+		return { ...attributes };
+	}
+
+	const keys = Object.keys( attributes );
+	const unknown = keys.filter( ( key ) => ! ( key in supported ) );
+	if ( unknown.length ) {
+		throw new Error(
+			`Block "${ blockName }" has no attribute(s): ${ unknown.join(
+				', '
+			) }. Supported attributes: ${ Object.keys( supported ).join(
+				', '
+			) }.`
+		);
+	}
+
+	const normalized = {};
+	for ( const key of keys ) {
+		normalized[ key ] = normalizeAttributeValue(
+			attributes[ key ],
+			supported[ key ],
+			key
+		);
+	}
+	return normalized;
+}
+
+/**
+ * Reject nesting the editor would refuse anyway, before anything is inserted.
+ *
+ * @param {string} parentName
+ * @param {string} childName
+ * @param {string} path
+ */
+function assertNestingAllowed( parentName, childName, path ) {
+	const { getBlockType } = getBlocksApi();
+
+	const allowedParents = getBlockType( childName )?.parent;
+	if (
+		Array.isArray( allowedParents ) &&
+		! allowedParents.includes( parentName )
+	) {
+		throw new Error(
+			`${ path }: "${ childName }" can only be nested inside ${ allowedParents.join(
+				', '
+			) }.`
+		);
+	}
+
+	const allowedChildren = getBlockType( parentName )?.allowedBlocks;
+	if (
+		Array.isArray( allowedChildren ) &&
+		! allowedChildren.includes( childName )
+	) {
+		throw new Error(
+			`${ path }: "${ parentName }" only accepts ${ allowedChildren.join(
+				', '
+			) }.`
+		);
+	}
+}
+
+/**
+ * Build a block and its descendants from a plain { name, attributes,
+ * innerBlocks } spec.
+ *
+ * @param {Object}  spec
+ * @param {string}  [path]       Field path prefix, used in error messages.
+ * @param {?string} [parentName] Block name this spec is nested in.
+ * @return {Object}
+ */
+function buildBlock( spec, path = '', parentName = null ) {
+	const { createBlock, getBlockType } = getBlocksApi();
+	const field = ( key ) => ( path ? `${ path }.${ key }` : key );
+
+	if ( ! isPlainObject( spec ) ) {
+		throw new Error(
+			`${ path || 'block' } must be an object with a block name.`
+		);
+	}
+	if ( typeof spec.name !== 'string' || ! spec.name ) {
+		throw new Error( `${ field( 'name' ) } must be a block name.` );
+	}
+	if ( ! getBlockType( spec.name ) ) {
+		throw new Error( `Block type is not registered: ${ spec.name }` );
+	}
+	if ( parentName ) {
+		assertNestingAllowed( parentName, spec.name, path );
+	}
+
+	const children = spec.innerBlocks ?? [];
+	if ( ! Array.isArray( children ) ) {
+		throw new Error(
+			`${ field( 'innerBlocks' ) } must be an array of blocks.`
+		);
+	}
+
+	return createBlock(
+		spec.name,
+		normalizeAttributes( spec.name, spec.attributes ?? {} ),
+		children.map( ( child, index ) =>
+			buildBlock(
+				child,
+				`${ field( 'innerBlocks' ) }[${ index }]`,
+				spec.name
+			)
+		)
+	);
+}
+
+/**
  * Serialize a block (and descendants) into a compact tree node.
  *
  * @param {Object} block
@@ -173,6 +422,38 @@ function requireBlock( store, clientId, label = 'clientId' ) {
 		throw new Error( `Block not found for ${ label }: ${ clientId }` );
 	}
 	return block;
+}
+
+/**
+ * Ensure a block type is allowed at a location, with an actionable reason when
+ * it is not.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {string}  name         Block name to insert.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ */
+function assertCanInsert( store, name, rootClientId ) {
+	if ( store.canInsertBlockType( name, rootClientId || undefined ) ) {
+		return;
+	}
+
+	// A container that is still empty renders a placeholder instead of an
+	// inner block list, and the editor refuses every child until that list
+	// exists. Point at the way out instead of just saying no.
+	const parent = rootClientId ? store.getBlock( rootClientId ) : null;
+	if (
+		parent &&
+		! ( parent.innerBlocks || [] ).length &&
+		store.getBlockListSettings?.( rootClientId ) === undefined
+	) {
+		throw new Error(
+			`Block type "${ name }" cannot be inserted into "${ parent.name }" because that block is empty and is showing its placeholder, so it accepts no children yet. Insert a new "${ parent.name }" with its children in a single call using innerBlocks, then remove the empty one.`
+		);
+	}
+
+	throw new Error(
+		`Block type "${ name }" cannot be inserted at the requested location.`
+	);
 }
 
 /**
@@ -450,7 +731,7 @@ export function registerEditorAbilities() {
 		name: 'editor/insert-block',
 		label: 'Insert Block',
 		description:
-			'Inserts a block into the editor. Optionally place it inside a parent or after another block.',
+			'Inserts a block, with any nested blocks, into the editor. Optionally place it inside a parent or after another block.',
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
@@ -462,6 +743,32 @@ export function registerEditorAbilities() {
 				attributes: {
 					type: 'object',
 					description: 'Optional block attributes.',
+				},
+				innerBlocks: {
+					type: 'array',
+					description:
+						'Optional nested blocks, inserted with the parent in one step. Build container blocks this way: an empty core/columns (or similar) shows a layout placeholder and accepts no children until it has inner blocks, so a two-column layout must be inserted as core/columns containing two core/column blocks.',
+					items: {
+						type: 'object',
+						properties: {
+							name: {
+								type: 'string',
+								description:
+									'Block name to nest (e.g. core/column).',
+							},
+							attributes: {
+								type: 'object',
+								description: 'Optional block attributes.',
+							},
+							innerBlocks: {
+								type: 'array',
+								description:
+									'Blocks nested one level deeper, in the same shape.',
+								items: { type: 'object' },
+							},
+						},
+						required: [ 'name' ],
+					},
 				},
 				rootClientId: {
 					type: 'string',
@@ -489,6 +796,7 @@ export function registerEditorAbilities() {
 				name: { type: 'string' },
 				rootClientId: { type: [ 'string', 'null' ] },
 				index: { type: 'integer' },
+				innerBlockCount: { type: 'integer' },
 			},
 			required: [ 'clientId', 'name', 'index' ],
 		},
@@ -502,11 +810,12 @@ export function registerEditorAbilities() {
 		callback: async ( input = {} ) => {
 			assertEditorReady();
 			const { select, dispatch } = getData();
-			const { createBlock, getBlockType } = getBlocksApi();
 			const store = select( BLOCK_EDITOR_STORE );
 			const actions = dispatch( BLOCK_EDITOR_STORE );
 
-			if ( ! getBlockType( input.name ) ) {
+			// Checked up front so an unknown name is reported as such, rather
+			// than as a block the editor refuses to place.
+			if ( ! getBlocksApi().getBlockType( input.name ) ) {
 				throw new Error(
 					`Block type is not registered: ${ input.name }`
 				);
@@ -541,21 +850,13 @@ export function registerEditorAbilities() {
 				index = store.getBlockIndex( input.afterClientId ) + 1;
 			}
 
-			const canInsert = store.canInsertBlockType(
-				input.name,
-				effectiveRootClientId || undefined
-			);
-			if ( ! canInsert ) {
-				throw new Error(
-					`Block type "${ input.name }" cannot be inserted at the requested location.`
-				);
-			}
+			assertCanInsert( store, input.name, effectiveRootClientId );
 
-			const block = createBlock(
-				input.name,
-				input.attributes || {},
-				[]
-			);
+			const block = buildBlock( {
+				name: input.name,
+				attributes: input.attributes,
+				innerBlocks: input.innerBlocks,
+			} );
 
 			await actions.insertBlock(
 				block,
@@ -563,12 +864,21 @@ export function registerEditorAbilities() {
 				effectiveRootClientId || undefined
 			);
 
+			// The store drops disallowed insertions silently; report that as a
+			// failure rather than returning a client ID that is not in the tree.
+			if ( ! store.getBlock( block.clientId ) ) {
+				throw new Error(
+					'The editor did not insert this block. Its destination may be locked.'
+				);
+			}
+
 			return {
 				clientId: block.clientId,
 				name: block.name,
 				rootClientId:
 					store.getBlockRootClientId( block.clientId ) || null,
 				index: store.getBlockIndex( block.clientId ),
+				innerBlockCount: block.innerBlocks.length,
 			};
 		},
 	} );
@@ -770,7 +1080,7 @@ export function registerEditorAbilities() {
 		name: 'editor/update-block',
 		label: 'Update Block',
 		description:
-			'Updates attributes on an existing block. Supplied attributes are merged into the current ones.',
+			'Updates attributes on an existing block. Supplied attributes are merged into the current ones, and each value must match the shape the block type declares.',
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
@@ -808,43 +1118,24 @@ export function registerEditorAbilities() {
 		callback: async ( input = {} ) => {
 			assertEditorReady();
 			const { select, dispatch } = getData();
-			const { getBlockType } = getBlocksApi();
 			const store = select( BLOCK_EDITOR_STORE );
 			const actions = dispatch( BLOCK_EDITOR_STORE );
 
 			const block = requireBlock( store, input.clientId );
 
-			const attributes = input.attributes;
-			if (
-				! attributes ||
-				typeof attributes !== 'object' ||
-				Array.isArray( attributes )
-			) {
+			if ( ! isPlainObject( input.attributes ) ) {
 				throw new Error( 'attributes must be an object.' );
 			}
 
-			const keys = Object.keys( attributes );
+			const keys = Object.keys( input.attributes );
 			if ( ! keys.length ) {
 				throw new Error( 'attributes must contain at least one key.' );
 			}
 
-			// Unknown keys are stored but never serialized, so fail loudly with
-			// the list the block actually accepts.
-			const supported = getBlockType( block.name )?.attributes;
-			if ( supported ) {
-				const unknown = keys.filter(
-					( key ) => ! ( key in supported )
-				);
-				if ( unknown.length ) {
-					throw new Error(
-						`Block "${ block.name }" has no attribute(s): ${ unknown.join(
-							', '
-						) }. Supported attributes: ${ Object.keys(
-							supported
-						).join( ', ' ) }.`
-					);
-				}
-			}
+			const attributes = normalizeAttributes(
+				block.name,
+				input.attributes
+			);
 
 			await actions.updateBlockAttributes( input.clientId, attributes );
 
@@ -858,6 +1149,79 @@ export function registerEditorAbilities() {
 		},
 	} );
 	abilityNames.push( 'editor/update-block' );
+
+	ensureAbility( {
+		name: 'editor/remove-block',
+		label: 'Remove Block',
+		description:
+			'Removes a block, and everything nested inside it, from the editor.',
+		category: 'block-editor',
+		input_schema: {
+			type: 'object',
+			properties: {
+				clientId: {
+					type: 'string',
+					description: 'Client ID of the block to remove.',
+				},
+			},
+			required: [ 'clientId' ],
+			additionalProperties: false,
+		},
+		output_schema: {
+			type: 'object',
+			properties: {
+				clientId: { type: 'string' },
+				name: { type: 'string' },
+				rootClientId: { type: [ 'string', 'null' ] },
+				index: { type: 'integer' },
+				removedInnerBlockCount: { type: 'integer' },
+			},
+			required: [ 'clientId', 'name', 'index' ],
+		},
+		meta: {
+			annotations: {
+				readonly: false,
+				destructive: true,
+				idempotent: true,
+			},
+		},
+		callback: async ( input = {} ) => {
+			assertEditorReady();
+			const { select, dispatch } = getData();
+			const store = select( BLOCK_EDITOR_STORE );
+			const actions = dispatch( BLOCK_EDITOR_STORE );
+
+			const block = requireBlock( store, input.clientId );
+			const rootClientId =
+				store.getBlockRootClientId( input.clientId ) || null;
+			const index = store.getBlockIndex( input.clientId );
+
+			if ( store.canRemoveBlock?.( input.clientId ) === false ) {
+				throw new Error(
+					`Block "${ block.name }" cannot be removed. It or its parent may be locked.`
+				);
+			}
+
+			// Leave the selection alone: the agent is editing the document,
+			// not moving a caret through it.
+			await actions.removeBlock( input.clientId, false );
+
+			if ( store.getBlock( input.clientId ) ) {
+				throw new Error(
+					'The editor did not remove this block. It or its parent may be locked.'
+				);
+			}
+
+			return {
+				clientId: input.clientId,
+				name: block.name,
+				rootClientId,
+				index,
+				removedInnerBlockCount: ( block.innerBlocks || [] ).length,
+			};
+		},
+	} );
+	abilityNames.push( 'editor/remove-block' );
 
 	ensureAbility( {
 		name: 'editor/get-editor-selection',

@@ -9,7 +9,7 @@ Requires **WordPress 7.0+** (client-side Abilities API).
 On block editor screens the plugin:
 
 1. Registers a `block-editor` ability category
-2. Registers eight editor abilities (inspect / query / mutate the live editor)
+2. Registers nine editor abilities (inspect / query / mutate the live editor)
 3. Bridges each ability to `document.modelContext.registerTool()` when WebMCP is available
 
 | Ability | WebMCP tool name | Purpose |
@@ -17,9 +17,10 @@ On block editor screens the plugin:
 | `editor/get-editor-tree` | `editor_get-editor-tree` | Full hierarchical block tree (optional `maxDepth`) |
 | `editor/find-editor-blocks` | `editor_find-editor-blocks` | Find blocks by text / name / attribute; returns flat summaries |
 | `editor/get-block-location` | `editor_get-block-location` | Parents, root, and index for a block |
-| `editor/insert-block` | `editor_insert-block` | Insert a block (optional parent / after) |
+| `editor/insert-block` | `editor_insert-block` | Insert a block, with nested `innerBlocks` (optional parent / after) |
 | `editor/move-block` | `editor_move-block` | Move a block within or between parents |
 | `editor/update-block` | `editor_update-block` | Merge attribute changes into a block |
+| `editor/remove-block` | `editor_remove-block` | Remove a block and everything nested inside it |
 | `editor/get-editor-selection` | `editor_get-editor-selection` | Current selection state |
 | `editor/can-insert-block` | `editor_can-insert-block` | Whether a block type can be inserted |
 
@@ -32,7 +33,9 @@ Behavior worth knowing when calling these:
 - `search` is the way to find a block by the words shown in the editor: it is a case-insensitive substring match over the block's string attributes, and it also matches with markup and common HTML entities resolved, so `Chloe` finds `<strong>Chloe Nolan</strong>`. A `value` passed without an `attribute` is treated as `search` rather than matching every block.
 - `attribute` matches on presence; add `value` to compare, which is done as a string (objects and arrays compare as JSON).
 - `editor/move-block` takes `afterClientId` / `beforeClientId` (the sibling's parent becomes the destination) or an explicit `rootClientId` + `index`. Indexes are the block's position after the move. Moving a block into itself or a descendant is an error, as is a move the editor refuses because of a lock.
+- `editor/insert-block` takes `innerBlocks` (recursive `{ name, attributes, innerBlocks }`), and container blocks have to be built that way. An empty `core/columns` renders a layout placeholder rather than an inner block list, so the editor registers no block list settings for it and refuses every child until it has inner blocks — a two-column layout must be inserted as one `core/columns` holding two `core/column` blocks. Nesting the block types forbid (`core/column` outside `core/columns`) fails before anything is inserted.
 - `editor/update-block` merges the attributes you pass; anything you omit is left alone. Attribute keys the block type does not define are rejected with the list of keys it accepts, since unknown keys are stored but never saved.
+- Attribute values are checked against the shape the block type declares, and defaults nested inside `query` sources are filled in. Those defaults are otherwise only applied while parsing saved markup, so a `core/table` cell set programmatically without its `tag` would render an undefined element and break the block.
 - Ability failures come back as MCP tool errors with a readable message rather than rejecting the tool call.
 
 ## Project layout
