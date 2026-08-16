@@ -4,7 +4,8 @@
   "description": "Client-side block editor abilities bridged to WebMCP",
   "scripts": {
     "start": "wp-playground-cli start --skip-browser --wp=latest",
-    "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset"
+    "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
+    "zip": "bash bin/build-zip.sh"
   },
   "devDependencies": {
     "@wp-playground/cli": "latest"
