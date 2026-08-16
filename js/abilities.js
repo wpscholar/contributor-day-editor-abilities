@@ -28,11 +28,11 @@ function getData() {
 }
 
 /**
- * @return {{ createBlock: Function }}
+ * @return {{ createBlock: Function, getBlockType: Function }}
  */
 function getBlocksApi() {
 	const { blocks } = window.wp || {};
-	if ( ! blocks?.createBlock ) {
+	if ( ! blocks?.createBlock || ! blocks?.getBlockType ) {
 		throw new Error( 'WordPress blocks API is not available.' );
 	}
 	return blocks;
@@ -42,19 +42,48 @@ function getBlocksApi() {
  * Serialize a block (and descendants) into a compact tree node.
  *
  * @param {Object} block
+ * @param {number} [maxDepth] Depth of descendants to include.
+ * @param {number} [depth]
  * @return {Object}
  */
-function serializeBlock( block ) {
+function serializeBlock( block, maxDepth = Infinity, depth = 0 ) {
+	const innerBlocks = block.innerBlocks || [];
+	const node = {
+		clientId: block.clientId,
+		name: block.name,
+		attributes: block.attributes ?? {},
+	};
+
+	if ( depth >= maxDepth ) {
+		node.innerBlocks = [];
+		node.truncatedInnerBlockCount = innerBlocks.length;
+		return node;
+	}
+
+	node.innerBlocks = innerBlocks.map( ( innerBlock ) =>
+		serializeBlock( innerBlock, maxDepth, depth + 1 )
+	);
+	return node;
+}
+
+/**
+ * Serialize a block without its subtree, for flat match lists.
+ *
+ * @param {Object} block
+ * @return {Object}
+ */
+function summarizeBlock( block ) {
 	return {
 		clientId: block.clientId,
 		name: block.name,
 		attributes: block.attributes ?? {},
-		innerBlocks: ( block.innerBlocks || [] ).map( serializeBlock ),
+		innerBlockCount: ( block.innerBlocks || [] ).length,
 	};
 }
 
 /**
- * Walk the block tree and collect matches.
+ * Walk the block tree and collect matches as flat summaries. Matched blocks are
+ * still descended into, so a match nested inside a match is reported once each.
  *
  * @param {Object[]} blocks
  * @param {(block: Object) => boolean} predicate
@@ -64,13 +93,47 @@ function serializeBlock( block ) {
 function collectBlocks( blocks, predicate, matches = [] ) {
 	for ( const block of blocks ) {
 		if ( predicate( block ) ) {
-			matches.push( serializeBlock( block ) );
+			matches.push( summarizeBlock( block ) );
 		}
 		if ( block.innerBlocks?.length ) {
 			collectBlocks( block.innerBlocks, predicate, matches );
 		}
 	}
 	return matches;
+}
+
+/**
+ * Compare an attribute against the requested value as a string. Objects and
+ * arrays are compared by their JSON form.
+ *
+ * @param {unknown} attributeValue
+ * @param {string}  expected
+ * @return {boolean}
+ */
+function attributeMatchesValue( attributeValue, expected ) {
+	if ( attributeValue === null || attributeValue === undefined ) {
+		return false;
+	}
+	if ( typeof attributeValue === 'object' ) {
+		return JSON.stringify( attributeValue ) === expected;
+	}
+	return String( attributeValue ) === expected;
+}
+
+/**
+ * Resolve a client ID to a block, throwing when it is missing or unknown.
+ *
+ * @param {Object} store    Block editor store selectors.
+ * @param {string} clientId
+ * @param {string} [label]  Input field name, used in the error message.
+ * @return {Object}
+ */
+function requireBlock( store, clientId, label = 'clientId' ) {
+	const block = clientId ? store.getBlock( clientId ) : null;
+	if ( ! block ) {
+		throw new Error( `Block not found for ${ label }: ${ clientId }` );
+	}
+	return block;
 }
 
 /**
@@ -130,7 +193,14 @@ export function registerEditorAbilities() {
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
-			properties: {},
+			properties: {
+				maxDepth: {
+					type: 'integer',
+					minimum: 0,
+					description:
+						'Levels of nested blocks to include. Omit for the whole tree. Truncated nodes report truncatedInnerBlockCount.',
+				},
+			},
 			additionalProperties: false,
 		},
 		output_schema: {
@@ -154,11 +224,19 @@ export function registerEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async () => {
+		callback: async ( { maxDepth } = {} ) => {
 			assertEditorReady();
 			const { select } = getData();
+
+			if ( maxDepth !== undefined && ! ( maxDepth >= 0 ) ) {
+				throw new Error( 'maxDepth must be zero or greater.' );
+			}
+
+			const depthLimit = maxDepth === undefined ? Infinity : maxDepth;
 			const blocks = select( BLOCK_EDITOR_STORE ).getBlocks();
-			const tree = blocks.map( serializeBlock );
+			const tree = blocks.map( ( block ) =>
+				serializeBlock( block, depthLimit )
+			);
 			return { blocks: tree, count: tree.length };
 		},
 	} );
@@ -181,16 +259,17 @@ export function registerEditorAbilities() {
 				attribute: {
 					type: 'string',
 					description:
-						'Attribute key to match. When set, value is compared with ==.',
+						'Attribute key that must be present on the block. Omit value to match on presence alone.',
 				},
 				value: {
+					type: 'string',
 					description:
-						'Attribute value to match when attribute is provided.',
+						'Attribute value to match when attribute is provided. Compared as a string; objects and arrays are compared as JSON.',
 				},
 				clientId: {
 					type: 'string',
 					description:
-						'Optional root client ID to search within. Defaults to the full document.',
+						'Optional client ID to search within, including the block itself. Defaults to the full document.',
 				},
 			},
 			additionalProperties: false,
@@ -198,7 +277,11 @@ export function registerEditorAbilities() {
 		output_schema: {
 			type: 'object',
 			properties: {
-				blocks: { type: 'array' },
+				blocks: {
+					type: 'array',
+					description:
+						'Flat list of matching blocks, without their nested subtrees.',
+				},
 				count: { type: 'integer' },
 			},
 			required: [ 'blocks', 'count' ],
@@ -215,7 +298,7 @@ export function registerEditorAbilities() {
 			const { select } = getData();
 			const store = select( BLOCK_EDITOR_STORE );
 			const roots = input.clientId
-				? store.getBlock( input.clientId )?.innerBlocks || []
+				? [ requireBlock( store, input.clientId ) ]
 				: store.getBlocks();
 
 			const matches = collectBlocks( roots, ( block ) => {
@@ -223,8 +306,16 @@ export function registerEditorAbilities() {
 					return false;
 				}
 				if ( input.attribute ) {
-					return (
-						block.attributes?.[ input.attribute ] == input.value
+					const attributes = block.attributes || {};
+					if ( ! ( input.attribute in attributes ) ) {
+						return false;
+					}
+					if ( input.value === undefined ) {
+						return true;
+					}
+					return attributeMatchesValue(
+						attributes[ input.attribute ],
+						input.value
 					);
 				}
 				return true;
@@ -275,11 +366,7 @@ export function registerEditorAbilities() {
 			assertEditorReady();
 			const { select } = getData();
 			const store = select( BLOCK_EDITOR_STORE );
-			const block = store.getBlock( clientId );
-
-			if ( ! block ) {
-				throw new Error( `Block not found: ${ clientId }` );
-			}
+			const block = requireBlock( store, clientId );
 
 			const parentClientIds = store.getBlockParents( clientId ) || [];
 			const rootClientId = store.getBlockRootClientId( clientId );
@@ -362,29 +449,43 @@ export function registerEditorAbilities() {
 		callback: async ( input = {} ) => {
 			assertEditorReady();
 			const { select, dispatch } = getData();
-			const { createBlock } = getBlocksApi();
+			const { createBlock, getBlockType } = getBlocksApi();
 			const store = select( BLOCK_EDITOR_STORE );
 			const actions = dispatch( BLOCK_EDITOR_STORE );
 
-			let effectiveRootClientId = input.rootClientId || '';
+			if ( ! getBlockType( input.name ) ) {
+				throw new Error(
+					`Block type is not registered: ${ input.name }`
+				);
+			}
+
 			let index = input.index;
+			if ( index !== undefined && ! Number.isInteger( index ) ) {
+				throw new Error( 'index must be an integer.' );
+			}
+			if ( index !== undefined && index < 0 ) {
+				throw new Error( 'index must be zero or greater.' );
+			}
+
+			if ( input.rootClientId ) {
+				requireBlock( store, input.rootClientId, 'rootClientId' );
+			}
+
+			let effectiveRootClientId = input.rootClientId || '';
 
 			if ( input.afterClientId ) {
+				requireBlock( store, input.afterClientId, 'afterClientId' );
+
 				const afterRoot =
 					store.getBlockRootClientId( input.afterClientId ) || '';
-				const afterIndex = store.getBlockIndex( input.afterClientId );
-				index = afterIndex + 1;
-
-				if (
-					input.rootClientId &&
-					input.rootClientId !== afterRoot
-				) {
+				if ( input.rootClientId && input.rootClientId !== afterRoot ) {
 					throw new Error(
 						'afterClientId is not a child of the provided rootClientId.'
 					);
 				}
 
 				effectiveRootClientId = afterRoot;
+				index = store.getBlockIndex( input.afterClientId ) + 1;
 			}
 
 			const canInsert = store.canInsertBlockType(
@@ -403,18 +504,18 @@ export function registerEditorAbilities() {
 				[]
 			);
 
-			actions.insertBlock(
+			await actions.insertBlock(
 				block,
-				typeof index === 'number' ? index : undefined,
+				index,
 				effectiveRootClientId || undefined
 			);
 
-			const insertedIndex = store.getBlockIndex( block.clientId );
 			return {
 				clientId: block.clientId,
 				name: block.name,
-				rootClientId: store.getBlockRootClientId( block.clientId ) || null,
-				index: insertedIndex,
+				rootClientId:
+					store.getBlockRootClientId( block.clientId ) || null,
+				index: store.getBlockIndex( block.clientId ),
 			};
 		},
 	} );
@@ -464,8 +565,9 @@ export function registerEditorAbilities() {
 				store.getSelectedBlockClientIds() || [];
 			const selectionStart = store.getSelectionStart() || null;
 			const selectionEnd = store.getSelectionEnd() || null;
+			// The selection can reference a block that is already gone.
 			const selectedBlock = selectedBlockClientId
-				? serializeBlock( store.getBlock( selectedBlockClientId ) )
+				? store.getBlock( selectedBlockClientId )
 				: null;
 
 			return {
@@ -473,7 +575,9 @@ export function registerEditorAbilities() {
 				selectedBlockClientIds,
 				selectionStart,
 				selectionEnd,
-				selectedBlock,
+				selectedBlock: selectedBlock
+					? serializeBlock( selectedBlock )
+					: null,
 			};
 		},
 	} );
@@ -520,7 +624,13 @@ export function registerEditorAbilities() {
 		callback: async ( { name, rootClientId } = {} ) => {
 			assertEditorReady();
 			const { select } = getData();
-			const canInsert = select( BLOCK_EDITOR_STORE ).canInsertBlockType(
+			const store = select( BLOCK_EDITOR_STORE );
+
+			if ( rootClientId ) {
+				requireBlock( store, rootClientId, 'rootClientId' );
+			}
+
+			const canInsert = store.canInsertBlockType(
 				name,
 				rootClientId || undefined
 			);

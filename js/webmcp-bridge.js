@@ -48,68 +48,169 @@ function toToolAnnotations( ability ) {
 
 /**
  * @param {unknown} result
- * @return {{ content: Array<{ type: string, text: string }>, structuredContent: unknown }}
+ * @return {{ content: Array<{ type: string, text: string }>, structuredContent?: Object }}
  */
 function formatToolResult( result ) {
+	if ( result === undefined ) {
+		return { content: [ { type: 'text', text: '' } ] };
+	}
+
 	const text =
 		typeof result === 'string' ? result : JSON.stringify( result, null, 2 );
+	const formatted = { content: [ { type: 'text', text } ] };
 
+	// structuredContent must be a JSON object, not an array or primitive.
+	if (
+		result !== null &&
+		typeof result === 'object' &&
+		! Array.isArray( result )
+	) {
+		formatted.structuredContent = result;
+	}
+
+	return formatted;
+}
+
+/**
+ * Surface ability failures as tool errors the agent can read and retry from,
+ * rather than rejecting the execute() call.
+ *
+ * @param {unknown} error
+ * @return {{ content: Array<{ type: string, text: string }>, isError: true }}
+ */
+function formatToolError( error ) {
 	return {
-		content: [ { type: 'text', text } ],
-		structuredContent: result,
+		content: [ { type: 'text', text: String( error?.message || error ) } ],
+		isError: true,
 	};
 }
 
 /**
- * @param {Object} [schema]
- * @return {Object}
+ * Copy a JSON Schema, recursing into properties and items.
+ *
+ * @param {Object}  schema
+ * @param {boolean} collapseNullableTypes Replace ['string','null'] with 'string'.
+ * @return {Object|undefined}
  */
-function toToolInputSchema( schema ) {
+function normalizeSchema( schema, collapseNullableTypes ) {
 	if ( ! schema || typeof schema !== 'object' ) {
-		return { type: 'object', properties: {} };
+		return undefined;
 	}
 
-	const properties = {};
-	for ( const [ key, value ] of Object.entries( schema.properties || {} ) ) {
-		if ( ! value || typeof value !== 'object' ) {
-			continue;
-		}
+	const normalized = { ...schema };
 
-		const property = { ...value };
-		if ( Array.isArray( property.type ) ) {
-			const nonNull = property.type.filter( ( type ) => type !== 'null' );
-			property.type = nonNull[ 0 ] || 'string';
-		}
-
-		properties[ key ] = property;
+	if ( collapseNullableTypes && Array.isArray( normalized.type ) ) {
+		const nonNull = normalized.type.filter( ( type ) => type !== 'null' );
+		normalized.type = nonNull[ 0 ] || 'string';
 	}
 
-	const normalized = {
-		type: 'object',
-		properties,
-	};
+	if ( normalized.properties && typeof normalized.properties === 'object' ) {
+		const properties = {};
+		for ( const [ key, value ] of Object.entries(
+			normalized.properties
+		) ) {
+			const property = normalizeSchema( value, collapseNullableTypes );
+			if ( property ) {
+				properties[ key ] = property;
+			}
+		}
+		normalized.properties = properties;
+	}
 
-	if ( Array.isArray( schema.required ) && schema.required.length ) {
-		normalized.required = [ ...schema.required ];
+	if ( normalized.items ) {
+		normalized.items =
+			normalizeSchema( normalized.items, collapseNullableTypes ) ??
+			normalized.items;
 	}
 
 	return normalized;
 }
 
 /**
+ * Agent function-calling formats generally reject union types, so nullable
+ * input types are collapsed to their first concrete type.
+ *
+ * @param {Object} [schema]
+ * @return {Object}
+ */
+function toToolInputSchema( schema ) {
+	const normalized = normalizeSchema( schema, true );
+	if ( ! normalized || normalized.type !== 'object' ) {
+		return { type: 'object', properties: {} };
+	}
+
+	if (
+		! normalized.properties ||
+		typeof normalized.properties !== 'object'
+	) {
+		normalized.properties = {};
+	}
+
+	return normalized;
+}
+
+/**
+ * Output schemas are validated with plain JSON Schema, so nullable unions are
+ * kept intact here.
+ *
+ * @param {Object} [schema]
+ * @return {Object|undefined}
+ */
+function toToolOutputSchema( schema ) {
+	const normalized = normalizeSchema( schema, false );
+	if ( ! normalized || normalized.type !== 'object' ) {
+		return undefined;
+	}
+	return normalized;
+}
+
+/**
+ * @param {unknown} error
+ * @return {boolean}
+ */
+function isAlreadyRegisteredError( error ) {
+	if ( error?.name === 'InvalidStateError' ) {
+		return true;
+	}
+	return /already/i.test( String( error?.message || error ) );
+}
+
+/**
+ * @return {boolean}
+ */
+function isDocumentLoaded() {
+	if ( typeof document === 'undefined' || ! document.readyState ) {
+		return true;
+	}
+	return document.readyState === 'complete';
+}
+
+/**
  * Wait briefly for WebMCP to become available (flag / document ready races).
+ * Polling stops shortly after the document finishes loading so browsers without
+ * WebMCP do not pay the full timeout on every editor load.
  *
  * @param {number} [timeoutMs]
+ * @param {number} [graceAfterLoadMs]
  * @return {Promise<ModelContext|null>}
  */
-async function waitForModelContext( timeoutMs = 3000 ) {
+async function waitForModelContext( timeoutMs = 3000, graceAfterLoadMs = 500 ) {
 	const started = Date.now();
+	let loadedAt = isDocumentLoaded() ? started : null;
 
 	while ( Date.now() - started < timeoutMs ) {
 		const modelContext = getModelContext();
 		if ( modelContext?.registerTool ) {
 			return modelContext;
 		}
+
+		if ( loadedAt === null && isDocumentLoaded() ) {
+			loadedAt = Date.now();
+		}
+		if ( loadedAt !== null && Date.now() - loadedAt >= graceAfterLoadMs ) {
+			break;
+		}
+
 		await new Promise( ( resolve ) => window.setTimeout( resolve, 50 ) );
 	}
 
@@ -134,17 +235,40 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 		description: ability.description || ability.label || abilityName,
 		inputSchema: toToolInputSchema( ability.input_schema ),
 		execute: async ( input = {} ) => {
-			const result = await executeAbility( abilityName, input || {} );
-			return formatToolResult( result );
+			try {
+				const result = await executeAbility( abilityName, input || {} );
+				return formatToolResult( result );
+			} catch ( error ) {
+				console.warn(
+					`[contributor-day] Ability failed: ${ abilityName }`,
+					error
+				);
+				return formatToolError( error );
+			}
 		},
 	};
 
+	const optional = {};
+	const outputSchema = toToolOutputSchema( ability.output_schema );
+	if ( outputSchema ) {
+		optional.outputSchema = outputSchema;
+	}
 	const annotations = toToolAnnotations( ability );
 	if ( annotations ) {
-		tool.annotations = annotations;
+		optional.annotations = annotations;
 	}
 
-	await modelContext.registerTool( tool );
+	try {
+		await modelContext.registerTool( { ...tool, ...optional } );
+	} catch ( error ) {
+		if ( isAlreadyRegisteredError( error ) ) {
+			throw error;
+		}
+		// Older WebMCP builds reject descriptor keys they do not know about;
+		// a tool without hints beats no tool at all.
+		await modelContext.registerTool( tool );
+	}
+
 	return true;
 }
 
@@ -176,7 +300,7 @@ export async function bridgeAbilitiesToWebMCP( abilityNames ) {
 		} catch ( error ) {
 			// Already registered from a prior bootstrap attempt — treat as success.
 			const message = String( error?.message || error );
-			if ( /already|InvalidStateError/i.test( message ) ) {
+			if ( isAlreadyRegisteredError( error ) ) {
 				registered.push( name );
 				continue;
 			}

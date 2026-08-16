@@ -14,13 +14,31 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CONTRIBUTOR_DAY_VERSION', '0.1.0' );
-define( 'CONTRIBUTOR_DAY_PLUGIN_FILE', __FILE__ );
-define( 'CONTRIBUTOR_DAY_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-define( 'CONTRIBUTOR_DAY_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+defined( 'CONTRIBUTOR_DAY_VERSION' ) || define( 'CONTRIBUTOR_DAY_VERSION', '0.1.0' );
+defined( 'CONTRIBUTOR_DAY_PLUGIN_FILE' ) || define( 'CONTRIBUTOR_DAY_PLUGIN_FILE', __FILE__ );
+defined( 'CONTRIBUTOR_DAY_PLUGIN_DIR' ) || define( 'CONTRIBUTOR_DAY_PLUGIN_DIR', plugin_dir_path( CONTRIBUTOR_DAY_PLUGIN_FILE ) );
+defined( 'CONTRIBUTOR_DAY_PLUGIN_URL' ) || define( 'CONTRIBUTOR_DAY_PLUGIN_URL', plugin_dir_url( CONTRIBUTOR_DAY_PLUGIN_FILE ) );
+
+/**
+ * Cache-busting version for a plugin file.
+ *
+ * @param string $relative_path Path relative to the plugin root.
+ * @return string
+ */
+function contributor_day_asset_version( $relative_path ) {
+	$path = CONTRIBUTOR_DAY_PLUGIN_DIR . $relative_path;
+
+	return file_exists( $path )
+		? (string) filemtime( $path )
+		: CONTRIBUTOR_DAY_VERSION;
+}
 
 /**
  * Enqueue editor abilities script module on block editor screens.
+ *
+ * Submodules are registered as dependencies rather than imported by relative
+ * path so that WordPress resolves them through the import map, where each one
+ * carries its own version query.
  */
 function contributor_day_enqueue_editor_abilities() {
 	if ( ! function_exists( 'wp_enqueue_script_module' ) ) {
@@ -30,16 +48,29 @@ function contributor_day_enqueue_editor_abilities() {
 	// Ensure the Abilities client (and its import map entry) are available.
 	wp_enqueue_script_module( '@wordpress/abilities' );
 
-	$script_path = CONTRIBUTOR_DAY_PLUGIN_DIR . 'js/index.js';
-	$version     = file_exists( $script_path )
-		? (string) filemtime( $script_path )
-		: CONTRIBUTOR_DAY_VERSION;
+	wp_register_script_module(
+		'@contributor-day/abilities',
+		CONTRIBUTOR_DAY_PLUGIN_URL . 'js/abilities.js',
+		array( '@wordpress/abilities' ),
+		contributor_day_asset_version( 'js/abilities.js' )
+	);
+
+	wp_register_script_module(
+		'@contributor-day/webmcp-bridge',
+		CONTRIBUTOR_DAY_PLUGIN_URL . 'js/webmcp-bridge.js',
+		array( '@wordpress/abilities' ),
+		contributor_day_asset_version( 'js/webmcp-bridge.js' )
+	);
 
 	wp_enqueue_script_module(
 		'@contributor-day/editor-abilities',
 		CONTRIBUTOR_DAY_PLUGIN_URL . 'js/index.js',
-		array( '@wordpress/abilities' ),
-		$version
+		array(
+			'@wordpress/abilities',
+			'@contributor-day/abilities',
+			'@contributor-day/webmcp-bridge',
+		),
+		contributor_day_asset_version( 'js/index.js' )
 	);
 }
 add_action( 'enqueue_block_editor_assets', 'contributor_day_enqueue_editor_abilities' );

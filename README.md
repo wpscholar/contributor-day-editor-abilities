@@ -14,14 +14,21 @@ On block editor screens the plugin:
 
 | Ability | WebMCP tool name | Purpose |
 | --- | --- | --- |
-| `editor/get-editor-tree` | `editor_get-editor-tree` | Full hierarchical block tree |
-| `editor/find-editor-blocks` | `editor_find-editor-blocks` | Find blocks by name / attribute |
+| `editor/get-editor-tree` | `editor_get-editor-tree` | Full hierarchical block tree (optional `maxDepth`) |
+| `editor/find-editor-blocks` | `editor_find-editor-blocks` | Find blocks by name / attribute; returns flat summaries |
 | `editor/get-block-location` | `editor_get-block-location` | Parents, root, and index for a block |
 | `editor/insert-block` | `editor_insert-block` | Insert a block (optional parent / after) |
 | `editor/get-editor-selection` | `editor_get-editor-selection` | Current selection state |
 | `editor/can-insert-block` | `editor_can-insert-block` | Whether a block type can be inserted |
 
 Ability names keep the `namespace/name` form. WebMCP tool names replace `/` with `_` (some agents reject `/` in tool names).
+
+Behavior worth knowing when calling these:
+
+- Unknown client IDs are an error, never a silent no-op. Passing a stale `afterClientId` to `editor/insert-block` fails instead of inserting at the top of the document.
+- `editor/find-editor-blocks` returns each match once as `{ clientId, name, attributes, innerBlockCount }`, so a match nested inside another match is not duplicated. A supplied `clientId` scopes the search and includes that block itself.
+- `attribute` matches on presence; add `value` to compare, which is done as a string (objects and arrays compare as JSON).
+- Ability failures come back as MCP tool errors with a readable message rather than rejecting the tool call.
 
 ## Project layout
 
