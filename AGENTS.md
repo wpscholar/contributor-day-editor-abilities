@@ -35,6 +35,8 @@ Goal: register **client-side** block editor abilities with `@wordpress/abilities
 - Define `input_schema` / `output_schema` (JSON Schema) and `meta.annotations` (`readonly`, `destructive`, `idempotent`)
 - Callbacks may assume they run in the block editor; guard with the `core/block-editor` store and throw clear errors otherwise
 - Use `window.wp.data` and `window.wp.blocks` (classic globals). Only `@wordpress/abilities` is imported as a script module
+- Anything backed by REST (patterns, `wp_block` posts, taxonomy terms) must be read with `wp.data.resolveSelect`, not `select` — a plain select returns nothing until the resolver finishes
+- Walking the block tree must go through `getInnerBlocks()`: `getBlock()` reports no children for inner block controllers (synced patterns, template parts), so a plain `innerBlocks` walk goes blind inside them
 
 ### WebMCP bridge
 
@@ -65,7 +67,7 @@ npm run zip          # Write dist/contributor-day.zip (gitignored)
 After JS changes, hard-refresh the block editor (`post-new.php` or edit post):
 
 1. Console: `[contributor-day] Registered editor abilities with WebMCP: …` **or** a clear “WebMCP unavailable” message
-2. `window.contributorDayEditorAbilities.webmcp.registered` lists the nine abilities
+2. `window.contributorDayEditorAbilities.webmcp.registered` lists every registered ability
 3. With WebMCP flag + inspector: tools remain visible (they must not disappear after load)
 4. Spot-check one read tool (`editor_get-editor-tree`) and one write tool (`editor_move-block`)
 

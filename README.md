@@ -9,7 +9,7 @@ Requires **WordPress 7.0+** (client-side Abilities API).
 On block editor screens the plugin:
 
 1. Registers a `block-editor` ability category
-2. Registers fifteen editor abilities (inspect / query / mutate the live editor)
+2. Registers twenty editor abilities (inspect / query / mutate the live editor)
 3. Bridges each ability to `document.modelContext.registerTool()` when WebMCP is available
 
 | Ability | WebMCP tool name | Purpose |
@@ -29,6 +29,11 @@ On block editor screens the plugin:
 | `editor/get-block-type` | `editor_get-block-type` | One block type in full: attribute schema, nesting rules, styles, variations |
 | `editor/undo` | `editor_undo` | Undo the last change to the document |
 | `editor/redo` | `editor_redo` | Redo the last undone change |
+| `editor/get-patterns` | `editor_get-patterns` | List available patterns, filtered by search / category / block types / destination |
+| `editor/get-pattern` | `editor_get-pattern` | One pattern as a block tree, optionally with its markup |
+| `editor/get-pattern-categories` | `editor_get-pattern-categories` | Pattern categories, registered and user-created |
+| `editor/insert-pattern` | `editor_insert-pattern` | Insert a pattern at a location |
+| `editor/create-pattern` | `editor_create-pattern` | Save blocks as a new pattern on this site |
 
 Ability names keep the `namespace/name` form. WebMCP tool names replace `/` with `_` (some agents reject `/` in tool names).
 
@@ -46,6 +51,22 @@ Behavior worth knowing when calling these:
 - `editor/transform-block` uses the block type's own registered transforms, so it keeps content that a remove-then-insert would lose. A refused target comes back with the list of types the block can become, and one transform can produce several blocks (a list becomes one paragraph per item).
 - `editor/undo` and `editor/redo` drive the editor's history, so a person can also step through the agent's work with the toolbar buttons. Each editing ability lands as its own undo step; there is no batching yet, so reverting a five-call edit takes five undos.
 - Ability failures come back as MCP tool errors with a readable message rather than rejecting the tool call.
+
+### Patterns
+
+- `editor/get-patterns` is the pattern counterpart of `editor/get-block-types`: it answers "what layouts does this site already have" before an agent assembles one block at a time. It lists registered patterns (core, theme, plugin, pattern directory) alongside the patterns saved on this site, and omits markup so the list stays small. Each entry carries `rootBlockNames` and `blockCount`, so a pattern can be judged without fetching it.
+- Pattern names keep the form the editor uses. Registered patterns are named by their author (`twentytwentyfive/hero`); a pattern saved on this site is `core/block/<id>`, after the `core/block` block that references it.
+- Passing `rootClientId` to `editor/get-patterns` narrows the list to patterns whose top-level blocks the destination will actually accept, which is how to avoid offering a template-part pattern inside a post.
+- `editor/get-pattern` returns blocks as `{ name, attributes, innerBlocks }` — the shape `editor/insert-block` and `editor/create-pattern` accept, and deliberately without client IDs, since none of those blocks are in the document.
+- `editor/insert-pattern` copies an unsynced or registered pattern in as ordinary blocks, and inserts a synced pattern as a single `core/block` reference, which is what the editor does. Pass `asReference: false` to copy a synced pattern's blocks in as an independent, editable set instead. Every top-level block is checked against the destination first, so a pattern that does not fit fails before anything is inserted.
+- `editor/create-pattern` saves either blocks already in the document (`clientIds`) or a structure supplied directly (`blocks`). Sync status follows core: `unsynced` writes the `wp_pattern_sync_status` meta and inserts independent copies, `synced` omits it and keeps every instance in step. A category with no term behind it yet gets one created, the same as the editor does, and the response reports which were created.
+- `replaceSource: true` swaps the source blocks for a reference to the new synced pattern, which is the editor's own "Create pattern" behavior. It needs `syncStatus: 'synced'` and blocks that sit next to each other under one parent.
+- Creating anything requires an account that may create `wp_block` posts; that is checked up front so the failure reads as a permission problem rather than a REST error.
+- Pattern data is fetched over REST, so the first pattern call on a page load waits on that request. Later calls are served from the store.
+
+### Synced patterns in the tree
+
+A synced pattern (`core/block`) owns its content as a separate entity, so `editor/get-editor-tree`, `editor/find-editor-blocks`, and `editor/get-editor-selection` reach into it through the editor's controlled-inner-block plumbing rather than the block itself, and mark the block with `controlledInnerBlocks: true`. Blocks below that marker are shared: editing one changes every post using the pattern, and the change is saved with that pattern rather than with the post, so `editor/undo` does not necessarily cover it. A pattern nested inside itself stops the walk and is reported as truncated.
 
 ## Project layout
 
