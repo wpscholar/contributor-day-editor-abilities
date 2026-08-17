@@ -15,10 +15,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${STAGE}/${PLUGIN_SLUG}/js"
+mkdir -p "${STAGE}/${PLUGIN_SLUG}"
 
 cp "${ROOT}/contributor-day.php" "${STAGE}/${PLUGIN_SLUG}/"
-cp "${ROOT}/js/"*.js "${STAGE}/${PLUGIN_SLUG}/js/"
+cp -R "${ROOT}/js" "${STAGE}/${PLUGIN_SLUG}/js"
+cp -R "${ROOT}/css" "${STAGE}/${PLUGIN_SLUG}/css"
+cp -R "${ROOT}/includes" "${STAGE}/${PLUGIN_SLUG}/includes"
 
 (
 	cd "${STAGE}"

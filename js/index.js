@@ -45,7 +45,7 @@ async function bootstrap() {
 			);
 		} else {
 			console.info(
-				'[contributor-day] Editor abilities registered. WebMCP is unavailable in this browser (enable chrome://flags/#enable-webmcp-testing).',
+				'[contributor-day] Editor abilities registered, but WebMCP is unavailable and the polyfill could not install (this page may not be a secure context).',
 				abilityNames
 			);
 		}

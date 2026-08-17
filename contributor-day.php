@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       Contributor Day Editor Abilities
- * Description:       Registers client-side block editor abilities and bridges them to WebMCP.
+ * Description:       Registers client-side block editor abilities, bridges them to WebMCP, and adds an AI chat panel powered by the WordPress AI Client.
  * Version:           0.1.0
  * Requires at least: 7.0
  * Requires PHP:      7.4
@@ -33,6 +33,10 @@ function contributor_day_asset_version( $relative_path ) {
 		: CONTRIBUTOR_DAY_VERSION;
 }
 
+require_once CONTRIBUTOR_DAY_PLUGIN_DIR . 'includes/chat-rest.php';
+require_once CONTRIBUTOR_DAY_PLUGIN_DIR . 'includes/chat-assets.php';
+require_once CONTRIBUTOR_DAY_PLUGIN_DIR . 'includes/chat-admin-page.php';
+
 /**
  * Enqueue editor abilities script module on block editor screens.
  *
@@ -48,6 +52,9 @@ function contributor_day_enqueue_editor_abilities() {
 	// Ensure the Abilities client (and its import map entry) are available.
 	wp_enqueue_script_module( '@wordpress/abilities' );
 
+	// Installs `document.modelContext` for the bridge to register tools into.
+	wp_enqueue_script( 'contributor-day-webmcp-polyfill' );
+
 	wp_register_script_module(
 		'@contributor-day/abilities',
 		CONTRIBUTOR_DAY_PLUGIN_URL . 'js/abilities.js',
@@ -58,7 +65,11 @@ function contributor_day_enqueue_editor_abilities() {
 	wp_register_script_module(
 		'@contributor-day/webmcp-bridge',
 		CONTRIBUTOR_DAY_PLUGIN_URL . 'js/webmcp-bridge.js',
-		array( '@wordpress/abilities' ),
+		array(
+			'@wordpress/abilities',
+			'@contributor-day/webmcp-polyfill',
+			'@contributor-day/webmcp-tools',
+		),
 		contributor_day_asset_version( 'js/webmcp-bridge.js' )
 	);
 
@@ -74,3 +85,28 @@ function contributor_day_enqueue_editor_abilities() {
 	);
 }
 add_action( 'enqueue_block_editor_assets', 'contributor_day_enqueue_editor_abilities' );
+
+/**
+ * Enqueue the chat sidebar in the block editor.
+ *
+ * The sidebar mount is the only editor-specific piece; it renders the shared
+ * panel into a PluginSidebar. The classic script dependencies are what put
+ * `wp.plugins`, `wp.element`, and `wp.editor` on the page for it to read.
+ */
+function contributor_day_enqueue_editor_chat() {
+	contributor_day_enqueue_chat(
+		'@contributor-day/chat-editor-sidebar',
+		'js/chat/mount-editor-sidebar.js'
+	);
+
+	if ( ! contributor_day_user_can_chat() ) {
+		return;
+	}
+
+	wp_enqueue_script( 'wp-plugins' );
+	wp_enqueue_script( 'wp-element' );
+	wp_enqueue_script( 'wp-components' );
+	wp_enqueue_script( 'wp-editor' );
+	wp_enqueue_script( 'wp-i18n' );
+}
+add_action( 'enqueue_block_editor_assets', 'contributor_day_enqueue_editor_chat' );

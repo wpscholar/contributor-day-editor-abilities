@@ -5,19 +5,8 @@
  */
 
 import { executeAbility, getAbility } from '@wordpress/abilities';
-
-/**
- * @return {ModelContext|null}
- */
-function getModelContext() {
-	if ( typeof document !== 'undefined' && document.modelContext ) {
-		return document.modelContext;
-	}
-	if ( typeof navigator !== 'undefined' && navigator.modelContext ) {
-		return navigator.modelContext;
-	}
-	return null;
-}
+import { getModelContext } from '@contributor-day/webmcp-polyfill';
+import { rememberLocalTool } from '@contributor-day/webmcp-tools';
 
 /**
  * WebMCP tool names may include alphanumerics, _, -, and .
@@ -268,6 +257,10 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 		// a tool without hints beats no tool at all.
 		await modelContext.registerTool( tool );
 	}
+
+	// Keep the executor around so consumers on this page (the chat panel) can
+	// call the ability without depending on the optional executeTool() API.
+	rememberLocalTool( { ...tool, ...optional } );
 
 	return true;
 }

@@ -3020,7 +3020,12 @@ export function registerEditorAbilities() {
 						properties: {
 							name: { type: 'string' },
 							attributes: { type: 'object' },
-							innerBlocks: { type: 'array' },
+							innerBlocks: {
+								type: 'array',
+								description:
+									'Blocks nested one level deeper, in the same shape.',
+								items: { type: 'object' },
+							},
 						},
 						required: [ 'name' ],
 					},

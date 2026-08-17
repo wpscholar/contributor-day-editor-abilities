@@ -1,0 +1,302 @@
+/**
+ * Chat panel styles.
+ *
+ * The panel fills whatever box it is mounted into, which is what lets the same
+ * markup work in a block editor sidebar and on a full admin screen.
+ */
+
+.cdchat {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	height: 100%;
+	min-height: 0;
+	box-sizing: border-box;
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.cdchat *,
+.cdchat *::before,
+.cdchat *::after {
+	box-sizing: inherit;
+}
+
+.cdchat__notice {
+	padding: 10px 12px;
+	border-left: 4px solid #dba617;
+	background: #fcf9e8;
+	border-radius: 2px;
+}
+
+.cdchat__log {
+	flex: 1 1 auto;
+	min-height: 120px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding-right: 4px;
+}
+
+.cdchat__log:empty {
+	display: none;
+}
+
+.cdchat__empty {
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	color: #50575e;
+}
+
+.cdchat__empty[hidden] {
+	display: none;
+}
+
+.cdchat__empty-text {
+	margin: 0;
+}
+
+.cdchat__suggestion {
+	text-align: left;
+	white-space: normal;
+	height: auto;
+	padding: 6px 10px;
+}
+
+.cdchat__status {
+	color: #50575e;
+	font-style: italic;
+}
+
+/* Turns */
+
+.cdchat-turn {
+	border-radius: 6px;
+}
+
+.cdchat-turn--user {
+	align-self: flex-end;
+	max-width: 90%;
+	padding: 8px 12px;
+	background: #f0f0f1;
+}
+
+.cdchat-turn--user .cdchat-turn__body {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.cdchat-turn--assistant .cdchat-turn__body > *:first-child {
+	margin-top: 0;
+}
+
+.cdchat-turn--assistant .cdchat-turn__body > *:last-child {
+	margin-bottom: 0;
+}
+
+.cdchat-turn--assistant p {
+	margin: 0 0 0.75em;
+}
+
+.cdchat-turn--assistant ul,
+.cdchat-turn--assistant ol {
+	margin: 0 0 0.75em;
+	padding-left: 1.4em;
+}
+
+.cdchat-turn--assistant li {
+	margin: 0 0 0.25em;
+	list-style: inherit;
+}
+
+.cdchat-turn--assistant ul {
+	list-style: disc;
+}
+
+.cdchat-turn--assistant ol {
+	list-style: decimal;
+}
+
+.cdchat-turn--assistant pre {
+	margin: 0 0 0.75em;
+	padding: 10px;
+	overflow-x: auto;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+}
+
+.cdchat-turn--assistant code {
+	font-size: 12px;
+}
+
+.cdchat-turn--assistant :not(pre) > code {
+	padding: 1px 4px;
+	background: #f0f0f1;
+	border-radius: 3px;
+}
+
+.cdchat-turn--error {
+	padding: 8px 12px;
+	background: #fcf0f1;
+	border-left: 4px solid #d63638;
+}
+
+.cdchat-turn__meta {
+	margin: 4px 0 0;
+	color: #787c82;
+	font-size: 11px;
+}
+
+/* Tool calls */
+
+.cdchat-turn__tools {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.cdchat-tool {
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.cdchat-tool__summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 10px;
+	cursor: pointer;
+	list-style: none;
+}
+
+.cdchat-tool__summary::-webkit-details-marker {
+	display: none;
+}
+
+.cdchat-tool__name {
+	font-family: Menlo, Consolas, monospace;
+	font-size: 12px;
+	overflow-wrap: anywhere;
+}
+
+.cdchat-tool__state {
+	flex: none;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	color: #787c82;
+}
+
+.cdchat-tool[data-state='running'] .cdchat-tool__state {
+	color: #2271b1;
+}
+
+.cdchat-tool[data-state='error'] {
+	border-color: #d63638;
+}
+
+.cdchat-tool[data-state='error'] .cdchat-tool__state {
+	color: #d63638;
+}
+
+.cdchat-tool__label {
+	margin: 0;
+	padding: 0 10px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	color: #787c82;
+}
+
+.cdchat-tool__block {
+	margin: 2px 10px 8px;
+	padding: 8px;
+	max-height: 220px;
+	overflow: auto;
+	background: #f6f7f7;
+	border-radius: 3px;
+	font-size: 11px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Composer */
+
+.cdchat__composer {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.cdchat__input {
+	width: 100%;
+	resize: vertical;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.cdchat__actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.cdchat__tools {
+	flex: 1 1 auto;
+	color: #787c82;
+	font-size: 11px;
+	cursor: help;
+}
+
+/* Block editor sidebar */
+
+.cdchat-sidebar {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 420px;
+	padding: 16px;
+}
+
+.cdchat-sidebar > .cdchat {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+/* A conversation needs more room than the 280px core gives a sidebar. */
+.interface-complementary-area:has(.cdchat-sidebar) {
+	width: 350px;
+}
+
+/* Let the sidebar body stretch so the message log, not the page, scrolls. */
+.interface-complementary-area:has(.cdchat-sidebar) .interface-complementary-area__content {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+/* Standalone screen */
+
+.contributor-day-chat-page__intro {
+	max-width: 75em;
+}
+
+.contributor-day-chat-page__panel {
+	max-width: 75em;
+	height: calc(100vh - 220px);
+	min-height: 380px;
+	padding: 16px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}

@@ -1,8 +1,8 @@
 # Contributor Day Editor Abilities
 
-WordPress plugin that registers **client-side block editor abilities** via [`@wordpress/abilities`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-abilities/) and exposes them to browser AI agents through [WebMCP](https://developer.chrome.com/docs/ai/webmcp).
+WordPress plugin that registers **client-side block editor abilities** via [`@wordpress/abilities`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-abilities/), exposes them to browser AI agents through [WebMCP](https://developer.chrome.com/docs/ai/webmcp), and ships a chat panel that drives those tools using the site's own AI connector.
 
-Requires **WordPress 7.0+** (client-side Abilities API).
+Requires **WordPress 7.0+** (client-side Abilities API and AI Client).
 
 ## What it does
 
@@ -10,7 +10,10 @@ On block editor screens the plugin:
 
 1. Registers a `block-editor` ability category
 2. Registers twenty editor abilities (inspect / query / mutate the live editor)
-3. Bridges each ability to `document.modelContext.registerTool()` when WebMCP is available
+3. Bridges each ability to `document.modelContext.registerTool()`, installing the [WebMCP polyfill](https://www.npmjs.com/package/@mcp-b/webmcp-polyfill) when the browser has no native support
+4. Adds an **AI Chat** sidebar that can call those tools
+
+There is also a standalone **Tools → AI Chat** screen running the same panel, to show the chat is not tied to the editor.
 
 | Ability | WebMCP tool name | Purpose |
 | --- | --- | --- |
@@ -68,18 +71,84 @@ Behavior worth knowing when calling these:
 
 A synced pattern (`core/block`) owns its content as a separate entity, so `editor/get-editor-tree`, `editor/find-editor-blocks`, and `editor/get-editor-selection` reach into it through the editor's controlled-inner-block plumbing rather than the block itself, and mark the block with `controlledInnerBlocks: true`. Blocks below that marker are shared: editing one changes every post using the pattern, and the change is saved with that pattern rather than with the post, so `editor/undo` does not necessarily cover it. A pattern nested inside itself stops the walk and is reported as truncated.
 
+## Chat
+
+The chat panel talks to whichever AI provider the site has configured under **Settings → Connectors** (Anthropic, Google, OpenAI, or anything else that registers with the AI Client). It never holds credentials of its own.
+
+### How a turn works
+
+WordPress 7.0 keeps the AI Client server-side, so the chat is split across the two:
+
+1. The browser lists the WebMCP tools the current page registers and sends them, with the conversation, to `POST /wp-json/contributor-day/v1/chat`.
+2. PHP declares those tools as function declarations on `wp_ai_client_prompt()` and runs **one** model turn.
+3. If the model asked for tools, the browser runs them against the live page and posts the results back. This repeats until the model answers with text (8 rounds by default).
+
+Conversation state lives entirely in the browser, so the endpoint is stateless and the same chat works on any screen. Assistant turns are replayed verbatim from the parts the previous response returned, which keeps provider-specific details such as function call IDs intact across rounds.
+
+Gemini is the exception: it requires the thought signature it issued with a function call to come back with that call, and WordPress 7.0's AI Client does not yet carry signatures out of a provider response, so there is nothing to replay. When a turn fails for that reason it is retried once with the tool calls and results replayed as a text transcript, and the browser reports the working mode back so the rest of the conversation skips the failed attempt.
+
+### Where the tools come from
+
+The chat offers whatever the page registered with WebMCP — nothing is hard-coded. In the block editor that is the twenty abilities above, so the assistant can read the block tree and edit the post. On the standalone screen there are usually none, and the chat answers questions instead. Tools registered by other plugins on the same page are picked up automatically.
+
+Tools this plugin registered are called through their own executor. Anything else goes through `document.modelContext.executeTool()`, which the polyfill always provides and native Chrome provides as an optional extension.
+
+Tool names are rewritten server-side to the character set every provider accepts (`editor_get-editor-tree` survives as-is; dots become underscores) and mapped back before the browser sees them.
+
+### Using the chat elsewhere
+
+`mountChatPanel( element, options )` renders the panel into any element, and is also published as `window.contributorDayChat.mount`. The block editor sidebar and the Tools screen are both thin mounts around it:
+
+```js
+import { mountChatPanel } from '@contributor-day/chat-panel';
+
+mountChatPanel( document.getElementById( 'my-chat' ), {
+	getContext: () => ( { screen: 'my screen', notes: 'Extra system prompt context.' } ),
+	suggestions: [ 'What can you do here?' ],
+} );
+```
+
+### Hooks
+
+| Hook | Purpose |
+| --- | --- |
+| `contributor_day_chat_capability` | Capability required to use the chat. Defaults to `edit_posts` |
+| `contributor_day_chat_model_preference` | Preferred models, best first |
+| `contributor_day_chat_system_instruction` | The full system instruction |
+| `contributor_day_chat_max_tool_rounds` | Tool rounds per message. Defaults to `8` |
+
+The endpoint runs arbitrary prompts against the site's connector, so it is gated on a capability rather than on being logged in. Narrow `contributor_day_chat_capability` if `edit_posts` is too broad for your site.
+
 ## Project layout
 
 ```text
-contributor-day.php   # Plugin bootstrap; enqueues script module in the editor
+contributor-day.php        # Plugin bootstrap; enqueues editor script modules
+includes/
+  chat-rest.php            # /contributor-day/v1/chat — one model turn per request
+  chat-assets.php          # Script module registration + per-screen config
+  chat-admin-page.php      # Tools → AI Chat
 js/
-  index.js            # Entry: register abilities + bridge to WebMCP
-  abilities.js        # Client-side ability definitions (block editor store)
-  webmcp-bridge.js    # Abilities → document.modelContext.registerTool
-bin/build-zip.sh      # Builds a distributable plugin zip
+  index.js                 # Entry: register abilities + bridge to WebMCP
+  abilities.js             # Client-side ability definitions (block editor store)
+  webmcp-bridge.js         # Abilities → document.modelContext.registerTool
+  webmcp-polyfill.js       # Installs the polyfill when the browser has no WebMCP
+  webmcp-tools.js          # Consumer side: list and call the page's tools
+  chat/
+    config.js              # Server config, read from the script module data tag
+    session.js             # Conversation + tool-call loop against the REST route
+    markup.js              # Minimal Markdown → DOM
+    panel.js               # The chat panel, mountable into any element
+    mount-editor-sidebar.js
+    mount-standalone.js
+  vendor/webmcp-polyfill/  # Vendored standalone build of @mcp-b/webmcp-polyfill
+css/chat.css
+bin/build-zip.sh           # Builds a distributable plugin zip
+bin/vendor-webmcp-polyfill.sh
 ```
 
-No bundler. Files are native ES modules resolved through WordPress import maps (`@wordpress/abilities`).
+No bundler. Plugin files are native ES modules resolved through WordPress import maps (`@wordpress/abilities`, `@contributor-day/*`).
+
+The polyfill is the one exception: its ESM build imports `@cfworker/json-schema` as a bare specifier, which nothing in a bundler-free setup would resolve, so the self-contained IIFE build is enqueued as a classic script instead. It installs itself on load and steps aside when the browser has native WebMCP. Classic scripts run before deferred modules, so `document.modelContext` exists by the time any module looks for it. Run `npm run vendor` to refresh the copy after bumping the dependency.
 
 ## Local development (WP Playground)
 
@@ -94,21 +163,26 @@ Playground auto-mounts this directory as `wp-content/plugins/contributor-day` an
 | --- | --- |
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |
+| `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |
 | `npm run zip` | Create `dist/contributor-day.zip` for distribution |
+
+To exercise the chat, install one of the official provider plugins ([Anthropic](https://wordpress.org/plugins/ai-provider-for-anthropic/), [Google](https://wordpress.org/plugins/ai-provider-for-google/), [OpenAI](https://wordpress.org/plugins/ai-provider-for-openai/)) and add an API key under **Settings → Connectors**. Without one, the panel loads and says so rather than failing on send.
 
 ## Testing WebMCP
 
-1. Use Chrome with WebMCP enabled (`chrome://flags/#enable-webmcp-testing`)
-2. Install the [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) extension (optional but useful)
-3. Open **Posts → Add New** (or edit any post)
-4. Confirm tools in the inspector, or in DevTools:
+The polyfill means tools register in any browser on a secure context (HTTPS or localhost). Native Chrome support (`chrome://flags/#enable-webmcp-testing`) takes precedence when present, and the [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) extension is useful for confirming what an external agent would see.
+
+Open **Posts → Add New** (or edit any post) and check DevTools:
 
 ```js
 window.contributorDayEditorAbilities
 // { abilityNames, webmcp: { supported, registered, skipped, errors }, isWebMCPSupported }
+
+await document.modelContext.getTools();
+// every registered tool, whichever implementation is in play
 ```
 
-Without WebMCP, abilities still register in the `@wordpress/abilities` store; only the browser tool bridge is skipped.
+The chat sidebar shows the same count next to the Send button; hover it for the list.
 
 ## Distributable zip
 
@@ -116,11 +190,14 @@ Without WebMCP, abilities still register in the `@wordpress/abilities` store; on
 npm run zip
 ```
 
-Writes `dist/contributor-day.zip` containing only plugin runtime files (`contributor-day.php` + `js/`). `dist/` and `*.zip` are gitignored.
+Writes `dist/contributor-day.zip` containing only plugin runtime files (`contributor-day.php`, `includes/`, `js/`, `css/`). `dist/` and `*.zip` are gitignored.
 
 ## References
 
 - [Introducing the WordPress Abilities API](https://developer.wordpress.org/news/2025/11/introducing-the-wordpress-abilities-api/)
 - [Client-Side Abilities API in WordPress 7.0](https://make.wordpress.org/core/2026/03/24/client-side-abilities-api-in-wordpress-7-0/)
+- [Introducing the AI Client in WordPress 7.0](https://make.wordpress.org/core/2026/03/24/introducing-the-ai-client-in-wordpress-7-0/)
+- [Introducing the Connectors API in WordPress 7.0](https://make.wordpress.org/core/2026/03/18/introducing-the-connectors-api-in-wordpress-7-0/)
 - [WebMCP (Chrome)](https://developer.chrome.com/docs/ai/webmcp)
 - [WebMCP Imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
+- [`@mcp-b/webmcp-polyfill`](https://www.npmjs.com/package/@mcp-b/webmcp-polyfill)
