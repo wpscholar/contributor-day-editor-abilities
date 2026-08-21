@@ -57,7 +57,7 @@ function contributor_day_chat_admin_body_class( $classes ) {
 function contributor_day_enqueue_chat_admin_page() {
 	contributor_day_enqueue_chat(
 		'@contributor-day/chat-standalone',
-		'js/chat/mount-standalone.js'
+		'chat-standalone.js'
 	);
 }
 

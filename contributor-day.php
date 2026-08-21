@@ -96,7 +96,7 @@ add_action( 'enqueue_block_editor_assets', 'contributor_day_enqueue_editor_abili
 function contributor_day_enqueue_editor_chat() {
 	contributor_day_enqueue_chat(
 		'@contributor-day/chat-editor-sidebar',
-		'js/chat/mount-editor-sidebar.js'
+		'chat-editor-sidebar.js'
 	);
 
 	if ( ! contributor_day_user_can_chat() ) {

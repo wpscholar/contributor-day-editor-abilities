@@ -95,17 +95,29 @@ Tools this plugin registered are called through their own executor. Anything els
 
 Tool names are rewritten server-side to the character set every provider accepts (`editor_get-editor-tree` survives as-is; dots become underscores) and mapped back before the browser sees them.
 
+### The interface
+
+The panel is a React app built with [shadcn/ui](https://ui.shadcn.com) components and the [AI SDK](https://ai-sdk.dev)'s `useChat`. Because WordPress 7.0 keeps the AI Client server-side, there is no AI SDK provider to point `useChat` at; instead `src/chat/transport.ts` implements a custom `ChatTransport` that calls the REST route once per round, runs the tools the model asked for against the page, and emits the whole exchange as one streaming assistant message.
+
+React itself is **not** bundled. WordPress already puts React 18.3 on the page, and core [asks plugins not to ship a second copy](https://make.wordpress.org/core/2026/07/24/react-19-punted-beyond-wordpress-7-1-experiment-in-gutenberg/), so the build rewrites every React import to read WordPress's globals. Sharing the runtime is also what lets the editor sidebar render the panel as ordinary `PluginSidebar` children.
+
+Tailwind is loaded without Preflight, since that reset would strip WordPress's own admin styling off any screen the chat appears on. The styles the components need are re-applied scoped to `.cdchat`.
+
 ### Using the chat elsewhere
 
-`mountChatPanel( element, options )` renders the panel into any element, and is also published as `window.contributorDayChat.mount`. The block editor sidebar and the Tools screen are both thin mounts around it:
+Add an entry under `src/entries/` that renders `<ChatPanel />`, register it in `vite.config.ts`, and enqueue it:
 
-```js
-import { mountChatPanel } from '@contributor-day/chat-panel';
+```tsx
+import '@/styles/chat.css';
+import { createRoot } from 'react-dom/client';
+import { ChatPanel } from '@/components/chat-panel';
 
-mountChatPanel( document.getElementById( 'my-chat' ), {
-	getContext: () => ( { screen: 'my screen', notes: 'Extra system prompt context.' } ),
-	suggestions: [ 'What can you do here?' ],
-} );
+createRoot( document.getElementById( 'my-chat' )! ).render(
+	<ChatPanel
+		getContext={ () => ( { screen: 'my screen', notes: 'Extra system prompt context.' } ) }
+		suggestions={ [ 'What can you do here?' ] }
+	/>
+);
 ```
 
 ### Hooks
@@ -133,38 +145,50 @@ js/
   webmcp-bridge.js         # Abilities → document.modelContext.registerTool
   webmcp-polyfill.js       # Installs the polyfill when the browser has no WebMCP
   webmcp-tools.js          # Consumer side: list and call the page's tools
-  chat/
-    config.js              # Server config, read from the script module data tag
-    session.js             # Conversation + tool-call loop against the REST route
-    markup.js              # Minimal Markdown → DOM
-    panel.js               # The chat panel, mountable into any element
-    mount-editor-sidebar.js
-    mount-standalone.js
+  chat/config.js           # Server config, read from the script module data tag
   vendor/webmcp-polyfill/  # Vendored standalone build of @mcp-b/webmcp-polyfill
-css/chat.css
+src/                       # The chat panel (built with Vite into build/)
+  chat/transport.ts        # AI SDK ChatTransport: one REST turn per round + tool loop
+  components/
+    chat-panel.tsx         # The panel: useChat, transcript, composer
+    chat-scroller.tsx      # Transcript scrolling that follows without hijacking
+    tool-call.tsx          # One tool call, inline in the assistant turn
+    markdown.tsx           # Minimal Markdown → React elements
+    ui/                    # shadcn components
+  entries/                 # One per mount: editor sidebar, standalone screen
+  lib/shims/               # react / react-dom / jsx-runtime → WordPress globals
+  styles/chat.css          # Tailwind (no Preflight) + tokens scoped to .cdchat
+css/chat-chrome.css        # Layout for the wp-admin containers around the panel
+vite.config.ts
 bin/build-zip.sh           # Builds a distributable plugin zip
 bin/vendor-webmcp-polyfill.sh
 ```
 
-No bundler. Plugin files are native ES modules resolved through WordPress import maps (`@wordpress/abilities`, `@contributor-day/*`).
+Two layers with different build stories. Everything under `js/` is hand-written native ESM resolved through WordPress import maps (`@wordpress/abilities`, `@contributor-day/*`) with no build step. The chat panel under `src/` is compiled, but keeps `@contributor-day/webmcp-tools` and `@contributor-day/chat-config` as import-map externals rather than bundling them — the tool layer has to be the *same* module instance the ability bridge registered into, or the chat would see an empty tool registry.
 
-The polyfill is the one exception: its ESM build imports `@cfworker/json-schema` as a bare specifier, which nothing in a bundler-free setup would resolve, so the self-contained IIFE build is enqueued as a classic script instead. It installs itself on load and steps aside when the browser has native WebMCP. Classic scripts run before deferred modules, so `document.modelContext` exists by the time any module looks for it. Run `npm run vendor` to refresh the copy after bumping the dependency.
+The polyfill is the one exception: its ESM build imports `@cfworker/json-schema` as a bare specifier, which the import map has no entry for, so the self-contained IIFE build is enqueued as a classic script instead. It installs itself on load and steps aside when the browser has native WebMCP. Classic scripts run before deferred modules, so `document.modelContext` exists by the time any module looks for it. Run `npm run vendor` to refresh the copy after bumping the dependency.
 
 ## Local development (WP Playground)
 
 ```bash
 npm install
+npm run build
 npm start
 ```
 
 Playground auto-mounts this directory as `wp-content/plugins/contributor-day` and starts WordPress at [http://127.0.0.1:9400](http://127.0.0.1:9400) (admin login is enabled by default).
 
+The chat panel is compiled, so `npm run build` is required before it will appear — `build/` is gitignored. If you forget, the admin says so instead of showing nothing. Use `npm run dev` while working on it.
+
 | Script | Description |
 | --- | --- |
+| `npm run build` | Build the chat panel into `build/` |
+| `npm run dev` | Rebuild the chat panel on change |
+| `npm run typecheck` | Type-check without emitting |
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |
 | `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |
-| `npm run zip` | Create `dist/contributor-day.zip` for distribution |
+| `npm run zip` | Build, then create `dist/contributor-day.zip` for distribution |
 
 To exercise the chat, install one of the official provider plugins ([Anthropic](https://wordpress.org/plugins/ai-provider-for-anthropic/), [Google](https://wordpress.org/plugins/ai-provider-for-google/), [OpenAI](https://wordpress.org/plugins/ai-provider-for-openai/)) and add an API key under **Settings → Connectors**. Without one, the panel loads and says so rather than failing on send.
 
@@ -190,7 +214,7 @@ The chat sidebar shows the same count next to the Send button; hover it for the 
 npm run zip
 ```
 
-Writes `dist/contributor-day.zip` containing only plugin runtime files (`contributor-day.php`, `includes/`, `js/`, `css/`). `dist/` and `*.zip` are gitignored.
+Builds the panel, then writes `dist/contributor-day.zip` containing only plugin runtime files (`contributor-day.php`, `includes/`, `js/`, `css/`, `build/`), with source maps stripped. `build/`, `dist/`, and `*.zip` are gitignored.
 
 ## References
 
@@ -201,3 +225,6 @@ Writes `dist/contributor-day.zip` containing only plugin runtime files (`contrib
 - [WebMCP (Chrome)](https://developer.chrome.com/docs/ai/webmcp)
 - [WebMCP Imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
 - [`@mcp-b/webmcp-polyfill`](https://www.npmjs.com/package/@mcp-b/webmcp-polyfill)
+- [shadcn/ui](https://ui.shadcn.com) — the chat components
+- [AI SDK: Transport](https://ai-sdk.dev/docs/ai-sdk-ui/transport) — the `ChatTransport` contract
+- [React 19 punted beyond WordPress 7.1](https://make.wordpress.org/core/2026/07/24/react-19-punted-beyond-wordpress-7-1-experiment-in-gutenberg/) — why React is not bundled

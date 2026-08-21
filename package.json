@@ -1,8 +1,12 @@
 {
   "name": "contributor-day",
   "private": true,
+  "type": "module",
   "description": "Client-side block editor abilities bridged to WebMCP",
   "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch --mode development",
+    "typecheck": "tsc --noEmit",
     "start": "wp-playground-cli start --skip-browser --wp=latest",
     "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
     "vendor": "bash bin/vendor-webmcp-polyfill.sh",
@@ -10,6 +14,25 @@
   },
   "devDependencies": {
     "@mcp-b/webmcp-polyfill": "^4.0.0",
-    "@wp-playground/cli": "latest"
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@wp-playground/cli": "latest",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^4.0.69",
+    "ai": "^7.0.66",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
+    "radix-ui": "^1.6.7",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3"
   }
 }

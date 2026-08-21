@@ -2,10 +2,16 @@
 /**
  * Script module registration and enqueueing for the chat panel.
  *
- * The chat is built as three layers: a tool registry over WebMCP, a session
- * that talks to the REST endpoint, and a panel that renders into any element.
- * Each mount (block editor sidebar, standalone admin page) only adds the last
- * step, so the chat itself is not tied to the editor.
+ * The chat is a React app built with Vite (see src/ and vite.config.ts). Two
+ * pieces stay outside that bundle and remain hand-written script modules:
+ *
+ * - `@contributor-day/webmcp-tools`, so the chat and the ability bridge share
+ *   one tool registry rather than each getting a private copy.
+ * - `@contributor-day/chat-config`, so the `script_module_data_` filter below
+ *   keeps being the way per-screen configuration reaches the client.
+ *
+ * The bundle imports both by their import-map IDs, which is why it ships as a
+ * script module rather than as a classic script.
  *
  * @package ContributorDay
  */
@@ -18,10 +24,15 @@ defined( 'ABSPATH' ) || exit;
 const CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE = '@contributor-day/chat-config';
 
 /**
- * Register every chat-related script module.
+ * Directory holding the built chat assets, relative to the plugin root.
+ */
+const CONTRIBUTOR_DAY_CHAT_BUILD_DIR = 'build/';
+
+/**
+ * Register every chat-related script module and style.
  *
  * Registration is separate from enqueueing so both the editor sidebar and the
- * standalone page can pull in the same graph.
+ * standalone screen can pull in the same graph.
  */
 function contributor_day_register_chat_modules() {
 	if ( ! function_exists( 'wp_register_script_module' ) ) {
@@ -32,20 +43,6 @@ function contributor_day_register_chat_modules() {
 		'@contributor-day/webmcp-polyfill' => array( 'js/webmcp-polyfill.js', array() ),
 		'@contributor-day/webmcp-tools'    => array( 'js/webmcp-tools.js', array( '@contributor-day/webmcp-polyfill' ) ),
 		CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE => array( 'js/chat/config.js', array() ),
-		'@contributor-day/chat-markup'     => array( 'js/chat/markup.js', array() ),
-		'@contributor-day/chat-session'    => array(
-			'js/chat/session.js',
-			array( CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE, '@contributor-day/webmcp-tools' ),
-		),
-		'@contributor-day/chat-panel'      => array(
-			'js/chat/panel.js',
-			array(
-				'@contributor-day/chat-session',
-				'@contributor-day/webmcp-tools',
-				'@contributor-day/chat-markup',
-				CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE,
-			),
-		),
 	);
 
 	foreach ( $modules as $id => $module ) {
@@ -59,11 +56,25 @@ function contributor_day_register_chat_modules() {
 		);
 	}
 
+	// The panel's own styles, emitted by the build.
 	wp_register_style(
 		'contributor-day-chat',
-		CONTRIBUTOR_DAY_PLUGIN_URL . 'css/chat.css',
+		CONTRIBUTOR_DAY_PLUGIN_URL . CONTRIBUTOR_DAY_CHAT_BUILD_DIR . 'chat.css',
 		array(),
-		contributor_day_asset_version( 'css/chat.css' )
+		contributor_day_asset_version( CONTRIBUTOR_DAY_CHAT_BUILD_DIR . 'chat.css' )
+	);
+
+	/*
+	 * Layout for the wp-admin containers the panel mounts into. This is
+	 * deliberately not part of the build: it styles WordPress's own markup,
+	 * which sits outside the `.cdchat` scope the bundled stylesheet is
+	 * confined to.
+	 */
+	wp_register_style(
+		'contributor-day-chat-chrome',
+		CONTRIBUTOR_DAY_PLUGIN_URL . 'css/chat-chrome.css',
+		array( 'contributor-day-chat' ),
+		contributor_day_asset_version( 'css/chat-chrome.css' )
 	);
 
 	/*
@@ -110,24 +121,74 @@ function contributor_day_chat_module_data( $data ) {
 add_filter( 'script_module_data_' . CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE, 'contributor_day_chat_module_data' );
 
 /**
+ * Whether the chat bundle has been built.
+ *
+ * @return bool
+ */
+function contributor_day_chat_is_built() {
+	return file_exists( CONTRIBUTOR_DAY_PLUGIN_DIR . CONTRIBUTOR_DAY_CHAT_BUILD_DIR . 'chat.css' );
+}
+
+/**
  * Enqueue the chat panel plus a mount for the current screen.
  *
- * @param string   $mount_module Script module ID of the mount.
- * @param string   $mount_path   Path to the mount module, relative to the plugin root.
- * @param string[] $extra_deps   Additional script module dependencies.
+ * @param string   $module_id  Script module ID to register the mount under.
+ * @param string   $build_file Built entry file name, relative to the build directory.
+ * @param string[] $extra_deps Additional script module dependencies.
  */
-function contributor_day_enqueue_chat( $mount_module, $mount_path, array $extra_deps = array() ) {
+function contributor_day_enqueue_chat( $module_id, $build_file, array $extra_deps = array() ) {
 	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! contributor_day_user_can_chat() ) {
 		return;
 	}
 
-	wp_enqueue_style( 'contributor-day-chat' );
+	$path = CONTRIBUTOR_DAY_CHAT_BUILD_DIR . $build_file;
+
+	if ( ! file_exists( CONTRIBUTOR_DAY_PLUGIN_DIR . $path ) ) {
+		return;
+	}
+
+	wp_enqueue_style( 'contributor-day-chat-chrome' );
 	wp_enqueue_script( 'contributor-day-webmcp-polyfill' );
 
+	/*
+	 * React comes from WordPress rather than from the bundle. Core asks plugins
+	 * not to ship their own copy, since two runtimes in one page is what breaks
+	 * on the React 19 upgrade, so the build rewrites every React import to read
+	 * these globals instead. They are classic scripts, which run before
+	 * deferred modules, so they are defined by the time the bundle executes.
+	 */
+	wp_enqueue_script( 'react' );
+	wp_enqueue_script( 'react-dom' );
+	wp_enqueue_script( 'react-jsx-runtime' );
+
 	wp_enqueue_script_module(
-		$mount_module,
-		CONTRIBUTOR_DAY_PLUGIN_URL . $mount_path,
-		array_merge( array( '@contributor-day/chat-panel' ), $extra_deps ),
-		contributor_day_asset_version( $mount_path )
+		$module_id,
+		CONTRIBUTOR_DAY_PLUGIN_URL . $path,
+		array_merge(
+			array(
+				'@contributor-day/webmcp-tools',
+				CONTRIBUTOR_DAY_CHAT_CONFIG_MODULE,
+			),
+			$extra_deps
+		),
+		contributor_day_asset_version( $path )
 	);
 }
+
+/**
+ * Tell an administrator when the chat is missing because nobody built it.
+ *
+ * The panel is compiled from src/, so a fresh checkout has no assets to load
+ * and would otherwise just show nothing.
+ */
+function contributor_day_chat_build_notice() {
+	if ( ! current_user_can( 'manage_options' ) || contributor_day_chat_is_built() ) {
+		return;
+	}
+
+	wp_admin_notice(
+		esc_html__( 'Contributor Day: the chat panel has not been built yet. Run "npm install && npm run build" in the plugin directory.', 'contributor-day' ),
+		array( 'type' => 'warning' )
+	);
+}
+add_action( 'admin_notices', 'contributor_day_chat_build_notice' );

@@ -1,0 +1,60 @@
+/**
+ * Layout for the wp-admin containers the chat panel mounts into.
+ *
+ * The panel styles itself; everything here is WordPress's own markup around it,
+ * which sits outside the `.cdchat` scope that the built stylesheet is confined
+ * to. Its job is to give the panel a container with a definite height, since
+ * the transcript scrolls rather than the page.
+ */
+
+/* Block editor sidebar */
+
+/*
+ * A conversation needs more room than the 280px core gives a sidebar. The
+ * width lives on the skeleton region rather than on the complementary area, so
+ * it is matched by what it contains to avoid widening the other sidebars.
+ */
+.interface-interface-skeleton__sidebar:has( .cdchat-sidebar ) {
+	width: 350px;
+}
+
+/*
+ * The panel has to fill the space under the sidebar header without spilling
+ * past it, so the column stretches rather than being given `height: 100%` —
+ * that measures the whole area including the header, and pushes the composer
+ * off the bottom of the screen.
+ */
+.interface-complementary-area:has( .cdchat-sidebar ) {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.cdchat-sidebar {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.cdchat-sidebar > .cdchat {
+	flex: 1 1 auto;
+	height: auto;
+	min-height: 0;
+}
+
+/* Standalone screen */
+
+.contributor-day-chat-page__intro {
+	max-width: 75em;
+}
+
+.contributor-day-chat-page__panel {
+	max-width: 75em;
+	height: calc( 100vh - 220px );
+	min-height: 380px;
+	overflow: hidden;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}

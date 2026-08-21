@@ -17,10 +17,17 @@ trap cleanup EXIT
 
 mkdir -p "${STAGE}/${PLUGIN_SLUG}"
 
+# The chat panel is compiled from src/, so the zip is only valid after a build.
+(cd "${ROOT}" && npm run build)
+
 cp "${ROOT}/contributor-day.php" "${STAGE}/${PLUGIN_SLUG}/"
 cp -R "${ROOT}/js" "${STAGE}/${PLUGIN_SLUG}/js"
 cp -R "${ROOT}/css" "${STAGE}/${PLUGIN_SLUG}/css"
 cp -R "${ROOT}/includes" "${STAGE}/${PLUGIN_SLUG}/includes"
+cp -R "${ROOT}/build" "${STAGE}/${PLUGIN_SLUG}/build"
+
+# Source maps are a development aid and roughly double the payload.
+find "${STAGE}/${PLUGIN_SLUG}/build" -name '*.map' -delete
 
 (
 	cd "${STAGE}"

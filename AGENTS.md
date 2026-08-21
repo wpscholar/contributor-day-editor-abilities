@@ -14,7 +14,8 @@ Two goals:
 ## Stack constraints
 
 - **WordPress 7.0+** required (`wp_enqueue_script_module`, `@wordpress/abilities`, `wp_ai_client_prompt`)
-- **No bundler** — ship native ESM under `js/`; WordPress import maps resolve bare specifiers
+- **Two layers, two build stories.** The abilities and WebMCP layer under `js/` is hand-written native ESM with no build step; WordPress import maps resolve its bare specifiers. The chat panel under `src/` is a React app built with Vite into `build/`
+- **React comes from WordPress, never from the bundle.** WordPress 7.0 ships React 18.3 as the `react`, `react-dom`, and `react-jsx-runtime` classic scripts. The build aliases every React specifier to a shim that re-exports those globals
 - **PHP** bootstraps, enqueues, and owns the AI Client; all ability and UI logic is client-side JS
 - **Playground CLI** (`@wp-playground/cli`) for local WordPress; `npm start` auto-mounts CWD as the plugin
 
@@ -31,8 +32,15 @@ Two goals:
 | `js/webmcp-bridge.js` | Maps abilities to WebMCP tools; feature-detects `document.modelContext` |
 | `js/webmcp-polyfill.js` | Reports on the WebMCP environment; installs nothing |
 | `js/webmcp-tools.js` | Consumer side: list and call the page's tools |
-| `js/chat/*` | Config, session loop, Markdown, panel, and the two mounts |
-| `bin/build-zip.sh` | Packaging only — do not put build tooling requirements on runtime JS |
+| `js/chat/config.js` | Reads the server config JSON; the only hand-written chat module left |
+| `vite.config.ts` | Build: React aliased to WordPress globals, two entries, one stylesheet |
+| `src/lib/shims/*` | Re-export `window.React` / `ReactDOM` / `ReactJSXRuntime` as ES modules |
+| `src/chat/transport.ts` | The AI SDK `ChatTransport`: one REST turn per round plus the tool loop |
+| `src/components/chat-panel.tsx` | The panel: `useChat`, transcript, composer |
+| `src/components/ui/*` | shadcn components — regenerate with the CLI, don't hand-edit |
+| `src/entries/*.tsx` | The two mounts (editor sidebar, standalone screen) |
+| `css/chat-chrome.css` | Layout for the wp-admin containers *around* the panel |
+| `bin/build-zip.sh` | Packaging; runs `npm run build` and strips source maps |
 | `bin/vendor-webmcp-polyfill.sh` | Re-copies the vendored polyfill from `node_modules` |
 
 ## Conventions
@@ -69,14 +77,26 @@ Two goals:
 ### Chat
 
 - The AI Client is **PHP-only** in 7.0. Core recommends a purpose-built REST endpoint per feature rather than a generic prompt endpoint, which is what `includes/chat-rest.php` is
-- The endpoint runs **one** model turn. The browser owns conversation state and the tool-call loop, which keeps the endpoint stateless and lets the chat run on any screen
-- Replay assistant turns from the `parts` the previous response returned, so function call IDs survive the trip through the browser. That is `historyMode: 'native'` and it is what every turn tries first
+- The endpoint runs **one** model turn. The browser owns conversation state and the tool-call loop, which keeps the endpoint stateless and lets the chat run on any screen. That loop lives in `WordPressAiTransport`, which presents it to `useChat` as a single streaming assistant message with a step boundary per round
+- Replay assistant turns from the `parts` the previous response returned, so function call IDs survive the trip through the browser. That is `historyMode: 'native'` and it is what every turn tries first. Those raw parts ride on the UI message's `metadata.wire`, because anything reconstructed from the rendered message would have lost them
 - Gemini requires the thought signature it issued with a function call to come back with that call, but no php-ai-client provider reads or writes `MessagePart::thoughtSignature`, so it never reaches this plugin. A turn that fails that way is retried once as `historyMode: 'text'` (tool calls and results replayed as a transcript) and the client reports the working mode back, so a conversation discovers it at most once. Revisit if a provider starts carrying signatures
 - Tools come from the page, not from the server: `listTools()` reads whatever WebMCP has. Never hard-code a tool list into the chat
 - Rewrite tool names for providers (`[^a-zA-Z0-9_-]` → `_`, 64 chars) and map them back before the browser sees them. OpenAI rejects the dots WebMCP allows
 - Client schemas are third-party input, so `contributor_day_chat_prepare_schema()` makes them safe to send: `{}` decodes to an empty PHP array that would re-encode as `[]`, an array with no `items` fails the request outright, and union types (`['string','null']`) have no place in a function declaration
-- The panel is plain DOM so it can mount anywhere. Keep `js/chat/panel.js` free of `wp.element` — only `mount-editor-sidebar.js` may touch editor packages
-- Model output is rendered through `js/chat/markup.js`, which builds DOM nodes. Never `innerHTML` a model response
+- The panel mounts anywhere, so keep `src/components/` free of editor packages — only `src/entries/editor-sidebar.tsx` may read `window.wp`
+- Model output is rendered through `src/components/markdown.tsx`, which returns React elements. Never put a model response through `dangerouslySetInnerHTML`
+
+### React and the build
+
+- Never import `react`, `react-dom`, or `react/jsx-runtime` expecting them to be bundled. The Vite aliases point them at `src/lib/shims/`, which read WordPress's globals. Shipping a second React is the documented cause of the breakage that pushed React 19 out of WordPress 7.1
+- Because React is shared with the editor, the sidebar renders the panel as ordinary `PluginSidebar` children. Do not go back to mounting into a `ref`'d div
+- The shims list their exports by hand, since an ES module cannot re-export an object's properties dynamically. A dependency reaching for a React export nobody has needed yet fails at build time — add the name to the shim
+- WordPress is on **React 18.3**, so any shadcn component that pulls in the `@shadcn/react` package (`message-scroller`, `questionnaire`) cannot be used: that package requires React 19. `src/components/chat-scroller.tsx` is the stand-in for `MessageScroller`
+- `@contributor-day/webmcp-tools` and `@contributor-day/chat-config` are **externals**, resolved by the WordPress import map at runtime. Bundling the tool layer would give the chat a private, empty tool registry
+- Tailwind is imported **without Preflight** (`tailwindcss/theme.css` + `tailwindcss/utilities.css`, never `@import "tailwindcss"`). Preflight is a global reset and this stylesheet loads in wp-admin. The parts the components need are re-applied scoped to `.cdchat` in `src/styles/chat.css`
+- Tailwind breakpoints measure the viewport, not the container, so `md:` utilities fire on a wide screen even when the panel is in a 350px sidebar. Pin padding and sizing rather than relying on them
+- Design tokens are defined on `.cdchat`, not `:root`, so they do not leak into the rest of the admin
+- Anything styling WordPress's own markup around the panel goes in `css/chat-chrome.css`, outside the bundle and outside the `.cdchat` scope
 
 ### PHP enqueue
 
@@ -85,15 +105,23 @@ Two goals:
 - Import submodules by their import-map ID, never by relative path. A relative import produces a second copy of the module under a different URL, which silently splits module-level state such as the local tool registry
 - Script modules cannot be localized — pass data with the `script_module_data_{$module_id}` filter and read the JSON tag on the client
 - Version scripts with `filemtime` for cache busting during development
+- Any screen showing the chat must also `wp_enqueue_script()` the `react`, `react-dom`, and `react-jsx-runtime` handles. They are classic scripts, so they run before the deferred module that reads them — `contributor_day_enqueue_chat()` already does this
+- The built entry is enqueued as a **script module**, not a classic script, because it imports the two externals by their import-map IDs
 
 ## Commands
 
 ```bash
+npm install          # Required first; the chat panel is compiled
+npm run build        # Build the chat panel into build/ (gitignored)
+npm run dev          # Same, rebuilding on change
+npm run typecheck    # tsc --noEmit
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules
-npm run zip          # Write dist/contributor-day.zip (gitignored)
+npm run zip          # Build, then write dist/contributor-day.zip (gitignored)
 ```
+
+`build/` is gitignored, so a fresh checkout has no panel until `npm run build` runs. PHP shows an admin notice saying exactly that rather than rendering nothing.
 
 ## Verification checklist
 
@@ -105,24 +133,31 @@ After JS changes, hard-refresh the block editor (`post-new.php` or edit post):
 4. With WebMCP flag + inspector: tools remain visible (they must not disappear after load)
 5. Spot-check one read tool (`editor_get-editor-tree`) and one write tool (`editor_move-block`)
 
-After chat changes:
+After chat changes, run `npm run build` first, then:
 
 1. The **AI Chat** sidebar opens from the editor's Plugins menu, and the tool count next to Send matches the ability count
 2. **Tools → AI Chat** renders the same panel and reports no page tools
 3. Without a connector, both say so instead of failing on send, and `GET /wp-json/contributor-day/v1/chat/status` reports `hasAiClient: true`
 4. With a connector, a prompt that needs the editor ("summarize the blocks in this post") shows tool calls resolving to `Done` before the answer
+5. `window.React.version` is WordPress's React, and the console has no "two copies of React" or invalid-hook warnings
+6. wp-admin still looks like wp-admin on the screens the chat loads on — an `h1` on **Tools → AI Chat** stays 23px, which is the tell that Preflight has not leaked
+7. The composer stays on screen in the sidebar at a short viewport; the transcript scrolls, not the sidebar
 
 ## What not to do
 
-- Do not add webpack/`@wordpress/scripts` unless explicitly requested — keep ESM + import maps
+- Do not add a build step to the abilities/WebMCP layer under `js/` — it stays native ESM + import maps. The Vite build exists for the chat panel only
+- Do not bundle React, `react-dom`, or `react/jsx-runtime`. See the React section above
+- Do not add a shadcn component that depends on the `@shadcn/react` package; it requires React 19 and WordPress is on 18.3
+- Do not use `@import "tailwindcss"` — it pulls in Preflight and would reset wp-admin
+- Do not hand-edit `src/components/ui/*`; those are shadcn output, re-addable with the CLI
 - Do not register WebMCP tools with a shared `AbortController` for page-lifetime tools
 - Do not call `registerAbility` / `registerAbilityCategory` without an existence check
-- Do not commit `dist/`, `*.zip`, or `node_modules/`
+- Do not commit `build/`, `dist/`, `*.zip`, or `node_modules/`
 - Do not invent server-side PHP abilities for this plugin’s editor features — they must run against the live editor stores in the browser
 - Do not use `provideContext` / `clearContext` / `unregisterTool` (removed or deprecated in current WebMCP)
 - Do not use the `wordpress/wp-ai-client` JS API for the chat. It exposes arbitrary prompting to the client and is admin-only for that reason; core recommends per-feature REST endpoints instead
 - Do not call an AI provider SDK directly — everything goes through `wp_ai_client_prompt()` so the site's connector and credentials stay in charge
-- Do not import `@wordpress/*` packages into the shared chat modules; only the editor mount may assume the editor is present
+- Do not read `window.wp` from `src/components/`; only `src/entries/editor-sidebar.tsx` may assume the editor is present
 
 ## Extending
 
@@ -137,9 +172,11 @@ The chat picks up new abilities automatically — they are just more WebMCP tool
 
 To mount the chat on another screen:
 
-1. Enqueue with `contributor_day_enqueue_chat( '@contributor-day/chat-<name>', 'js/chat/mount-<name>.js' )`
-2. In the mount, call `mountChatPanel( element, { getContext, suggestions } )`
-3. Register any page-specific tools with WebMCP; the chat will offer them
+1. Add `src/entries/<name>.tsx`, importing `@/styles/chat.css` and rendering `<ChatPanel getContext={…} suggestions={…} />`
+2. Add the entry to `build.rollupOptions.input` in `vite.config.ts`
+3. Enqueue it with `contributor_day_enqueue_chat( '@contributor-day/chat-<name>', 'chat-<name>.js' )`
+4. Give the container a definite height in `css/chat-chrome.css`; the transcript scrolls, not the page
+5. Register any page-specific tools with WebMCP; the chat will offer them
 
 ## External docs
 
@@ -149,3 +186,6 @@ To mount the chat on another screen:
 - https://developer.wordpress.org/block-editor/reference-guides/packages/packages-abilities/
 - https://developer.chrome.com/docs/ai/webmcp/imperative-api
 - https://docs.mcp-b.ai/packages/webmcp-polyfill/reference
+- https://make.wordpress.org/core/2026/07/24/react-19-punted-beyond-wordpress-7-1-experiment-in-gutenberg/ — why React must not be bundled
+- https://ui.shadcn.com/docs/components/message — the chat components in use
+- https://ai-sdk.dev/docs/ai-sdk-ui/transport — the `ChatTransport` contract
