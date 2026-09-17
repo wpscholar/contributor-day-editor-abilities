@@ -192,7 +192,7 @@ export function ChatPanel( {
 				/>
 
 				<div className="flex items-center gap-2">
-					<ToolCount names={ toolNames } />
+					<ToolCount names={ toolNames } messages={ messages } />
 
 					<Button
 						type="button"
@@ -281,19 +281,43 @@ function ChatMessage( { message }: { message: ChatUIMessage } ) {
 	);
 }
 
-function ToolCount( { names }: { names: string[] } ) {
-	const label = names.length
+function ToolCount( {
+	names,
+	messages,
+}: {
+	names: string[];
+	messages: ChatUIMessage[];
+} ) {
+	/*
+	 * Undocumented: clicking the tool count copies the raw conversation
+	 * (including tool-call parts) as JSON, for debugging without opening
+	 * devtools.
+	 */
+	const [ copied, setCopied ] = React.useState( false );
+
+	const label = copied
+		? 'Copied!'
+		: names.length
 		? `${ names.length } page ${ names.length === 1 ? 'tool' : 'tools' }`
 		: 'No page tools';
 
 	return (
 		<span
-			className="mr-auto text-xs text-muted-foreground"
+			className="mr-auto cursor-pointer text-xs text-muted-foreground"
 			title={
 				names.length
 					? names.join( '\n' )
 					: 'This page registers no WebMCP tools, so the assistant can only answer questions.'
 			}
+			onClick={ () => {
+				navigator.clipboard
+					.writeText( JSON.stringify( messages, null, 2 ) )
+					.then( () => {
+						setCopied( true );
+						setTimeout( () => setCopied( false ), 1200 );
+					} )
+					.catch( () => {} );
+			} }
 		>
 			{ label }
 		</span>

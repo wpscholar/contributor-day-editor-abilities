@@ -10,10 +10,13 @@
     "start": "wp-playground-cli start --skip-browser --wp=latest",
     "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
     "vendor": "bash bin/vendor-webmcp-polyfill.sh",
-    "zip": "bash bin/build-zip.sh"
+    "zip": "bash bin/build-zip.sh",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@mcp-b/webmcp-polyfill": "^4.0.0",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
