@@ -179,12 +179,14 @@ export function ChatPanel( {
 					onChange={ ( event ) => setInput( event.target.value ) }
 					onKeyDown={ ( event ) => {
 						if (
-							event.key === 'Enter' &&
-							( event.metaKey || event.ctrlKey )
+							event.key !== 'Enter' ||
+							event.shiftKey ||
+							event.nativeEvent.isComposing
 						) {
-							event.preventDefault();
-							submit();
+							return;
 						}
+						event.preventDefault();
+						submit();
 					} }
 					className="max-h-40 min-h-16 resize-none"
 				/>
