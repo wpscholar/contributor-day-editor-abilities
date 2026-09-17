@@ -15,7 +15,7 @@ import '@/styles/chat.css';
 import { ChatPanel } from '@/components/chat-panel';
 import { waitFor } from '@/lib/wp';
 
-const SIDEBAR_NAME = 'contributor-day-chat';
+const SIDEBAR_NAME = 'agentic-editor-chat';
 
 /** Describe what the editor is currently showing. */
 function getEditorContext(): Record< string, unknown > {
@@ -79,7 +79,7 @@ async function registerChatSidebar() {
 
 	if ( ! wp ) {
 		console.warn(
-			'[contributor-day] The block editor sidebar API is unavailable, so the chat sidebar was not added.'
+			'[agentic-editor] The block editor sidebar API is unavailable, so the chat sidebar was not added.'
 		);
 		return;
 	}
@@ -106,7 +106,7 @@ async function registerChatSidebar() {
 
 registerChatSidebar().catch( ( error ) => {
 	console.error(
-		'[contributor-day] Failed to register the chat sidebar:',
+		'[agentic-editor] Failed to register the chat sidebar:',
 		error
 	);
 } );

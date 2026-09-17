@@ -7,7 +7,7 @@
  * described here.
  */
 
-declare module '@contributor-day/webmcp-tools' {
+declare module '@agentic-editor/webmcp-tools' {
 	export interface WebMcpTool {
 		name: string;
 		description: string;

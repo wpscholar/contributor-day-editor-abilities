@@ -1,13 +1,13 @@
 /**
- * Contributor Day — editor abilities + WebMCP bridge entry point.
+ * Agentic Editor — editor abilities + WebMCP bridge entry point.
  */
 
-import { registerEditorAbilities } from '@contributor-day/abilities';
+import { registerEditorAbilities } from '@agentic-editor/abilities';
 import {
 	bridgeAbilitiesToWebMCP,
 	isWebMCPSupported,
 	toToolName,
-} from '@contributor-day/webmcp-bridge';
+} from '@agentic-editor/webmcp-bridge';
 
 /** @type {Promise<void>|null} */
 let bootstrapPromise = null;
@@ -24,7 +24,7 @@ async function bootstrap() {
 
 		// Published before bridging so the global is inspectable while the
 		// bridge waits for WebMCP to appear.
-		window.contributorDayEditorAbilities = {
+		window.agenticEditorAbilities = {
 			abilityNames,
 			webmcp: null,
 			isWebMCPSupported: isWebMCPSupported(),
@@ -32,7 +32,7 @@ async function bootstrap() {
 
 		const bridgeResult = await bridgeAbilitiesToWebMCP( abilityNames );
 
-		window.contributorDayEditorAbilities = {
+		window.agenticEditorAbilities = {
 			abilityNames,
 			webmcp: bridgeResult,
 			isWebMCPSupported: isWebMCPSupported(),
@@ -40,12 +40,12 @@ async function bootstrap() {
 
 		if ( bridgeResult.supported ) {
 			console.info(
-				'[contributor-day] Registered editor abilities with WebMCP:',
+				'[agentic-editor] Registered editor abilities with WebMCP:',
 				bridgeResult.registered.map( toToolName )
 			);
 		} else {
 			console.info(
-				'[contributor-day] Editor abilities registered, but WebMCP is unavailable and the polyfill could not install (this page may not be a secure context).',
+				'[agentic-editor] Editor abilities registered, but WebMCP is unavailable and the polyfill could not install (this page may not be a secure context).',
 				abilityNames
 			);
 		}
@@ -57,7 +57,7 @@ async function bootstrap() {
 bootstrap().catch( ( error ) => {
 	bootstrapPromise = null;
 	console.error(
-		'[contributor-day] Failed to bootstrap editor abilities:',
+		'[agentic-editor] Failed to bootstrap editor abilities:',
 		error
 	);
 } );

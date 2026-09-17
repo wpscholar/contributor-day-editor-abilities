@@ -11,8 +11,8 @@
  * Nothing here touches the DOM or the block editor.
  */
 
-import { chatConfig } from '@contributor-day/chat-config';
-import { callTool, listTools } from '@contributor-day/webmcp-tools';
+import { chatConfig } from '@agentic-editor/chat-config';
+import { callTool, listTools } from '@agentic-editor/webmcp-tools';
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai';
 
 /**

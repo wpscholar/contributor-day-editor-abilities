@@ -39,7 +39,7 @@ export function getWebMCPStatus() {
 	if ( ! available && ! secureContext && ! warned ) {
 		warned = true;
 		console.warn(
-			'[contributor-day] WebMCP is unavailable because this page is not a secure context. Serve the site over HTTPS or from localhost.'
+			'[agentic-editor] WebMCP is unavailable because this page is not a secure context. Serve the site over HTTPS or from localhost.'
 		);
 	}
 

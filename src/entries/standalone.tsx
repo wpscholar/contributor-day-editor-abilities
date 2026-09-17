@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 
 import { ChatPanel } from '@/components/chat-panel';
 
-const container = document.getElementById( 'contributor-day-chat-root' );
+const container = document.getElementById( 'agentic-editor-chat-root' );
 
 if ( container ) {
 	createRoot( container ).render(

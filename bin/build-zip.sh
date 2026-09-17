@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN_SLUG="contributor-day"
+PLUGIN_SLUG="agentic-editor"
 DIST_DIR="${ROOT}/dist"
 ZIP_PATH="${DIST_DIR}/${PLUGIN_SLUG}.zip"
 
@@ -20,7 +20,7 @@ mkdir -p "${STAGE}/${PLUGIN_SLUG}"
 # The chat panel is compiled from src/, so the zip is only valid after a build.
 (cd "${ROOT}" && npm run build)
 
-cp "${ROOT}/contributor-day.php" "${STAGE}/${PLUGIN_SLUG}/"
+cp "${ROOT}/agentic-editor.php" "${STAGE}/${PLUGIN_SLUG}/"
 cp -R "${ROOT}/js" "${STAGE}/${PLUGIN_SLUG}/js"
 cp -R "${ROOT}/css" "${STAGE}/${PLUGIN_SLUG}/css"
 cp -R "${ROOT}/includes" "${STAGE}/${PLUGIN_SLUG}/includes"

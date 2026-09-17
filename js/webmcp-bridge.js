@@ -5,8 +5,8 @@
  */
 
 import { executeAbility, getAbility } from '@wordpress/abilities';
-import { getModelContext } from '@contributor-day/webmcp-polyfill';
-import { rememberLocalTool } from '@contributor-day/webmcp-tools';
+import { getModelContext } from '@agentic-editor/webmcp-polyfill';
+import { rememberLocalTool } from '@agentic-editor/webmcp-tools';
 
 /**
  * WebMCP tool names may include alphanumerics, _, -, and .
@@ -229,7 +229,7 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 				return formatToolResult( result );
 			} catch ( error ) {
 				console.warn(
-					`[contributor-day] Ability failed: ${ abilityName }`,
+					`[agentic-editor] Ability failed: ${ abilityName }`,
 					error
 				);
 				return formatToolError( error );
@@ -299,7 +299,7 @@ export async function bridgeAbilitiesToWebMCP( abilityNames ) {
 			}
 
 			console.warn(
-				`[contributor-day] Failed to register WebMCP tool for ${ name }:`,
+				`[agentic-editor] Failed to register WebMCP tool for ${ name }:`,
 				error
 			);
 			skipped.push( name );

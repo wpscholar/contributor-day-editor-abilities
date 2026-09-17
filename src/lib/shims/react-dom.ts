@@ -22,7 +22,7 @@ const ReactDOM = window.ReactDOM;
 
 if ( ! ReactDOM ) {
 	throw new Error(
-		'[contributor-day] window.ReactDOM is missing. Enqueue the "react-dom" script before this module.'
+		'[agentic-editor] window.ReactDOM is missing. Enqueue the "react-dom" script before this module.'
 	);
 }
 

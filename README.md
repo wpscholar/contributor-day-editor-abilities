@@ -1,4 +1,4 @@
-# Contributor Day Editor Abilities
+# Agentic Editor
 
 WordPress plugin that registers **client-side block editor abilities** via [`@wordpress/abilities`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-abilities/), exposes them to browser AI agents through [WebMCP](https://developer.chrome.com/docs/ai/webmcp), and ships a chat panel that drives those tools using the site's own AI connector.
 
@@ -79,7 +79,7 @@ The chat panel talks to whichever AI provider the site has configured under **Se
 
 WordPress 7.0 keeps the AI Client server-side, so the chat is split across the two:
 
-1. The browser lists the WebMCP tools the current page registers and sends them, with the conversation, to `POST /wp-json/contributor-day/v1/chat`.
+1. The browser lists the WebMCP tools the current page registers and sends them, with the conversation, to `POST /wp-json/agentic-editor/v1/chat`.
 2. PHP declares those tools as function declarations on `wp_ai_client_prompt()` and runs **one** model turn.
 3. If the model asked for tools, the browser runs them against the live page and posts the results back. This repeats until the model answers with text (8 rounds by default).
 
@@ -124,19 +124,19 @@ createRoot( document.getElementById( 'my-chat' )! ).render(
 
 | Hook | Purpose |
 | --- | --- |
-| `contributor_day_chat_capability` | Capability required to use the chat. Defaults to `edit_posts` |
-| `contributor_day_chat_model_preference` | Preferred models, best first |
-| `contributor_day_chat_system_instruction` | The full system instruction |
-| `contributor_day_chat_max_tool_rounds` | Tool rounds per message. Defaults to `8` |
+| `agentic_editor_chat_capability` | Capability required to use the chat. Defaults to `edit_posts` |
+| `agentic_editor_chat_model_preference` | Preferred models, best first |
+| `agentic_editor_chat_system_instruction` | The full system instruction |
+| `agentic_editor_chat_max_tool_rounds` | Tool rounds per message. Defaults to `8` |
 
-The endpoint runs arbitrary prompts against the site's connector, so it is gated on a capability rather than on being logged in. Narrow `contributor_day_chat_capability` if `edit_posts` is too broad for your site.
+The endpoint runs arbitrary prompts against the site's connector, so it is gated on a capability rather than on being logged in. Narrow `agentic_editor_chat_capability` if `edit_posts` is too broad for your site.
 
 ## Project layout
 
 ```text
-contributor-day.php        # Plugin bootstrap; enqueues editor script modules
+agentic-editor.php        # Plugin bootstrap; enqueues editor script modules
 includes/
-  chat-rest.php            # /contributor-day/v1/chat — one model turn per request
+  chat-rest.php            # /agentic-editor/v1/chat — one model turn per request
   chat-assets.php          # Script module registration + per-screen config
   chat-admin-page.php      # Tools → AI Chat
 js/
@@ -164,7 +164,7 @@ bin/build-zip.sh           # Builds a distributable plugin zip
 bin/vendor-webmcp-polyfill.sh
 ```
 
-Two layers with different build stories. Everything under `js/` is hand-written native ESM resolved through WordPress import maps (`@wordpress/abilities`, `@contributor-day/*`) with no build step. The chat panel under `src/` is compiled, but keeps `@contributor-day/webmcp-tools` and `@contributor-day/chat-config` as import-map externals rather than bundling them — the tool layer has to be the *same* module instance the ability bridge registered into, or the chat would see an empty tool registry.
+Two layers with different build stories. Everything under `js/` is hand-written native ESM resolved through WordPress import maps (`@wordpress/abilities`, `@agentic-editor/*`) with no build step. The chat panel under `src/` is compiled, but keeps `@agentic-editor/webmcp-tools` and `@agentic-editor/chat-config` as import-map externals rather than bundling them — the tool layer has to be the *same* module instance the ability bridge registered into, or the chat would see an empty tool registry.
 
 The polyfill is the one exception: its ESM build imports `@cfworker/json-schema` as a bare specifier, which the import map has no entry for, so the self-contained IIFE build is enqueued as a classic script instead. It installs itself on load and steps aside when the browser has native WebMCP. Classic scripts run before deferred modules, so `document.modelContext` exists by the time any module looks for it. Run `npm run vendor` to refresh the copy after bumping the dependency.
 
@@ -176,7 +176,7 @@ npm run build
 npm start
 ```
 
-Playground auto-mounts this directory as `wp-content/plugins/contributor-day` and starts WordPress at [http://127.0.0.1:9400](http://127.0.0.1:9400) (admin login is enabled by default).
+Playground auto-mounts this directory as `wp-content/plugins/agentic-editor` and starts WordPress at [http://127.0.0.1:9400](http://127.0.0.1:9400) (admin login is enabled by default).
 
 The chat panel is compiled, so `npm run build` is required before it will appear — `build/` is gitignored. If you forget, the admin says so instead of showing nothing. Use `npm run dev` while working on it.
 
@@ -188,7 +188,7 @@ The chat panel is compiled, so `npm run build` is required before it will appear
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |
 | `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |
-| `npm run zip` | Build, then create `dist/contributor-day.zip` for distribution |
+| `npm run zip` | Build, then create `dist/agentic-editor.zip` for distribution |
 
 To exercise the chat, install one of the official provider plugins ([Anthropic](https://wordpress.org/plugins/ai-provider-for-anthropic/), [Google](https://wordpress.org/plugins/ai-provider-for-google/), [OpenAI](https://wordpress.org/plugins/ai-provider-for-openai/)) and add an API key under **Settings → Connectors**. Without one, the panel loads and says so rather than failing on send.
 
@@ -199,7 +199,7 @@ The polyfill means tools register in any browser on a secure context (HTTPS or l
 Open **Posts → Add New** (or edit any post) and check DevTools:
 
 ```js
-window.contributorDayEditorAbilities
+window.agenticEditorAbilities
 // { abilityNames, webmcp: { supported, registered, skipped, errors }, isWebMCPSupported }
 
 await document.modelContext.getTools();
@@ -214,7 +214,7 @@ The chat sidebar shows the same count next to the Send button; hover it for the 
 npm run zip
 ```
 
-Builds the panel, then writes `dist/contributor-day.zip` containing only plugin runtime files (`contributor-day.php`, `includes/`, `js/`, `css/`, `build/`), with source maps stripped. `build/`, `dist/`, and `*.zip` are gitignored.
+Builds the panel, then writes `dist/agentic-editor.zip` containing only plugin runtime files (`agentic-editor.php`, `includes/`, `js/`, `css/`, `build/`), with source maps stripped. `build/`, `dist/`, and `*.zip` are gitignored.
 
 ## References
 

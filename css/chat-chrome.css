@@ -45,11 +45,11 @@
 
 /* Standalone screen */
 
-.contributor-day-chat-page__intro {
+.agentic-editor-chat-page__intro {
 	max-width: 75em;
 }
 
-.contributor-day-chat-page__panel {
+.agentic-editor-chat-page__panel {
 	max-width: 75em;
 	height: calc( 100vh - 220px );
 	min-height: 380px;

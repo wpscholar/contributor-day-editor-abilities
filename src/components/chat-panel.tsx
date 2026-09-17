@@ -9,8 +9,8 @@
 import * as React from 'react';
 import { useChat } from '@ai-sdk/react';
 import { MessageSquareIcon, SendIcon, SquareIcon, Trash2Icon } from 'lucide-react';
-import { chatConfig } from '@contributor-day/chat-config';
-import { listTools, onToolsChanged } from '@contributor-day/webmcp-tools';
+import { chatConfig } from '@agentic-editor/chat-config';
+import { listTools, onToolsChanged } from '@agentic-editor/webmcp-tools';
 
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Button } from '@/components/ui/button';

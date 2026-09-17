@@ -1,5 +1,5 @@
 {
-  "name": "contributor-day",
+  "name": "agentic-editor",
   "private": true,
   "type": "module",
   "description": "Client-side block editor abilities bridged to WebMCP",

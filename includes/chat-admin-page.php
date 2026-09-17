@@ -7,7 +7,7 @@
  * whatever WebMCP tools the current page registers, which on this screen is
  * usually none.
  *
- * @package ContributorDay
+ * @package AgenticEditor
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -15,48 +15,48 @@ defined( 'ABSPATH' ) || exit;
 /**
  * Admin page slug.
  */
-const CONTRIBUTOR_DAY_CHAT_PAGE = 'contributor-day-chat';
+const AGENTIC_EDITOR_CHAT_PAGE = 'agentic-editor-chat';
 
 /**
  * Add the chat screen under Tools.
  */
-function contributor_day_register_chat_admin_page() {
+function agentic_editor_register_chat_admin_page() {
 	$hook = add_management_page(
-		__( 'AI Chat', 'contributor-day' ),
-		__( 'AI Chat', 'contributor-day' ),
-		contributor_day_chat_capability(),
-		CONTRIBUTOR_DAY_CHAT_PAGE,
-		'contributor_day_render_chat_admin_page'
+		__( 'AI Chat', 'agentic-editor' ),
+		__( 'AI Chat', 'agentic-editor' ),
+		agentic_editor_chat_capability(),
+		AGENTIC_EDITOR_CHAT_PAGE,
+		'agentic_editor_render_chat_admin_page'
 	);
 
 	if ( $hook ) {
-		add_action( "load-{$hook}", 'contributor_day_chat_admin_page_loaded' );
+		add_action( "load-{$hook}", 'agentic_editor_chat_admin_page_loaded' );
 	}
 }
-add_action( 'admin_menu', 'contributor_day_register_chat_admin_page' );
+add_action( 'admin_menu', 'agentic_editor_register_chat_admin_page' );
 
 /**
  * Mark the screen so the enqueue callback knows to load the chat.
  */
-function contributor_day_chat_admin_page_loaded() {
-	add_action( 'admin_enqueue_scripts', 'contributor_day_enqueue_chat_admin_page' );
-	add_filter( 'admin_body_class', 'contributor_day_chat_admin_body_class' );
+function agentic_editor_chat_admin_page_loaded() {
+	add_action( 'admin_enqueue_scripts', 'agentic_editor_enqueue_chat_admin_page' );
+	add_filter( 'admin_body_class', 'agentic_editor_chat_admin_body_class' );
 }
 
 /**
  * @param string $classes Body classes.
  * @return string
  */
-function contributor_day_chat_admin_body_class( $classes ) {
-	return $classes . ' contributor-day-chat-screen';
+function agentic_editor_chat_admin_body_class( $classes ) {
+	return $classes . ' agentic-editor-chat-screen';
 }
 
 /**
  * Enqueue the standalone mount.
  */
-function contributor_day_enqueue_chat_admin_page() {
-	contributor_day_enqueue_chat(
-		'@contributor-day/chat-standalone',
+function agentic_editor_enqueue_chat_admin_page() {
+	agentic_editor_enqueue_chat(
+		'@agentic-editor/chat-standalone',
 		'chat-standalone.js'
 	);
 }
@@ -64,14 +64,14 @@ function contributor_day_enqueue_chat_admin_page() {
 /**
  * Render the screen.
  */
-function contributor_day_render_chat_admin_page() {
+function agentic_editor_render_chat_admin_page() {
 	?>
-	<div class="wrap contributor-day-chat-page">
-		<h1><?php echo esc_html__( 'AI Chat', 'contributor-day' ); ?></h1>
-		<p class="contributor-day-chat-page__intro">
-			<?php echo esc_html__( 'Chat with the AI provider configured for this site. Any WebMCP tools registered by the current page are offered to the model.', 'contributor-day' ); ?>
+	<div class="wrap agentic-editor-chat-page">
+		<h1><?php echo esc_html__( 'AI Chat', 'agentic-editor' ); ?></h1>
+		<p class="agentic-editor-chat-page__intro">
+			<?php echo esc_html__( 'Chat with the AI provider configured for this site. Any WebMCP tools registered by the current page are offered to the model.', 'agentic-editor' ); ?>
 		</p>
-		<div id="contributor-day-chat-root" class="contributor-day-chat-page__panel"></div>
+		<div id="agentic-editor-chat-root" class="agentic-editor-chat-page__panel"></div>
 	</div>
 	<?php
 }

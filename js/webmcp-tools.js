@@ -13,7 +13,7 @@
  * page that loads this module gets a working tool layer.
  */
 
-import { getModelContext } from '@contributor-day/webmcp-polyfill';
+import { getModelContext } from '@agentic-editor/webmcp-polyfill';
 
 /** @type {Map<string, Object>} */
 const localTools = new Map();
@@ -58,7 +58,7 @@ function notifyToolsChanged() {
 		try {
 			listener();
 		} catch ( error ) {
-			console.warn( '[contributor-day] Tool change listener failed:', error );
+			console.warn( '[agentic-editor] Tool change listener failed:', error );
 		}
 	}
 }
@@ -135,7 +135,7 @@ export async function listTools() {
 				}
 			}
 		} catch ( error ) {
-			console.warn( '[contributor-day] Could not list WebMCP tools:', error );
+			console.warn( '[agentic-editor] Could not list WebMCP tools:', error );
 		}
 	}
 

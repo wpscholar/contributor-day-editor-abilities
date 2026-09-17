@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project purpose
 
-This repo **is** a WordPress plugin (not an app with a nested plugin folder). The project root mounts into Playground as `wp-content/plugins/contributor-day`.
+This repo **is** a WordPress plugin (not an app with a nested plugin folder). The project root mounts into Playground as `wp-content/plugins/agentic-editor`.
 
 Two goals:
 
@@ -23,11 +23,11 @@ Two goals:
 
 | Path | Responsibility |
 | --- | --- |
-| `contributor-day.php` | Plugin header, includes, `enqueue_block_editor_assets` |
-| `includes/chat-rest.php` | `/contributor-day/v1/chat` — one AI Client turn per request |
+| `agentic-editor.php` | Plugin header, includes, `enqueue_block_editor_assets` |
+| `includes/chat-rest.php` | `/agentic-editor/v1/chat` — one AI Client turn per request |
 | `includes/chat-assets.php` | Script module registration, polyfill script, per-screen config |
 | `includes/chat-admin-page.php` | Tools → AI Chat |
-| `js/index.js` | Bootstrap: abilities → WebMCP bridge; sets `window.contributorDayEditorAbilities` |
+| `js/index.js` | Bootstrap: abilities → WebMCP bridge; sets `window.agenticEditorAbilities` |
 | `js/abilities.js` | `registerAbility` / category; talks to `core/block-editor` via `wp.data` |
 | `js/webmcp-bridge.js` | Maps abilities to WebMCP tools; feature-detects `document.modelContext` |
 | `js/webmcp-polyfill.js` | Reports on the WebMCP environment; installs nothing |
@@ -72,7 +72,7 @@ Two goals:
 - The polyfill is vendored from `@mcp-b/webmcp-polyfill` and enqueued as a **classic script**, not a module. Its ESM build imports `@cfworker/json-schema` as a bare specifier that nothing here would resolve; the IIFE build inlines it and self-initializes on load
 - Do not edit `js/vendor/` by hand — run `npm run vendor`
 - Classic scripts execute before deferred modules, so `document.modelContext` is present by the time modules run. Never add `defer`/`async` to the polyfill handle
-- Anything that registers or consumes WebMCP tools must enqueue `contributor-day-webmcp-polyfill`
+- Anything that registers or consumes WebMCP tools must enqueue `agentic-editor-webmcp-polyfill`
 
 ### Chat
 
@@ -82,7 +82,7 @@ Two goals:
 - Gemini requires the thought signature it issued with a function call to come back with that call, but no php-ai-client provider reads or writes `MessagePart::thoughtSignature`, so it never reaches this plugin. A turn that fails that way is retried once as `historyMode: 'text'` (tool calls and results replayed as a transcript) and the client reports the working mode back, so a conversation discovers it at most once. Revisit if a provider starts carrying signatures
 - Tools come from the page, not from the server: `listTools()` reads whatever WebMCP has. Never hard-code a tool list into the chat
 - Rewrite tool names for providers (`[^a-zA-Z0-9_-]` → `_`, 64 chars) and map them back before the browser sees them. OpenAI rejects the dots WebMCP allows
-- Client schemas are third-party input, so `contributor_day_chat_prepare_schema()` makes them safe to send: `{}` decodes to an empty PHP array that would re-encode as `[]`, an array with no `items` fails the request outright, and union types (`['string','null']`) have no place in a function declaration
+- Client schemas are third-party input, so `agentic_editor_chat_prepare_schema()` makes them safe to send: `{}` decodes to an empty PHP array that would re-encode as `[]`, an array with no `items` fails the request outright, and union types (`['string','null']`) have no place in a function declaration
 - The panel mounts anywhere, so keep `src/components/` free of editor packages — only `src/entries/editor-sidebar.tsx` may read `window.wp`
 - Model output is rendered through `src/components/markdown.tsx`, which returns React elements. Never put a model response through `dangerouslySetInnerHTML`
 
@@ -92,7 +92,7 @@ Two goals:
 - Because React is shared with the editor, the sidebar renders the panel as ordinary `PluginSidebar` children. Do not go back to mounting into a `ref`'d div
 - The shims list their exports by hand, since an ES module cannot re-export an object's properties dynamically. A dependency reaching for a React export nobody has needed yet fails at build time — add the name to the shim
 - WordPress is on **React 18.3**, so any shadcn component that pulls in the `@shadcn/react` package (`message-scroller`, `questionnaire`) cannot be used: that package requires React 19. `src/components/chat-scroller.tsx` is the stand-in for `MessageScroller`
-- `@contributor-day/webmcp-tools` and `@contributor-day/chat-config` are **externals**, resolved by the WordPress import map at runtime. Bundling the tool layer would give the chat a private, empty tool registry
+- `@agentic-editor/webmcp-tools` and `@agentic-editor/chat-config` are **externals**, resolved by the WordPress import map at runtime. Bundling the tool layer would give the chat a private, empty tool registry
 - Tailwind is imported **without Preflight** (`tailwindcss/theme.css` + `tailwindcss/utilities.css`, never `@import "tailwindcss"`). Preflight is a global reset and this stylesheet loads in wp-admin. The parts the components need are re-applied scoped to `.cdchat` in `src/styles/chat.css`
 - Tailwind breakpoints measure the viewport, not the container, so `md:` utilities fire on a wide screen even when the panel is in a 350px sidebar. Pin padding and sizing rather than relying on them
 - Design tokens are defined on `.cdchat`, not `:root`, so they do not leak into the rest of the admin
@@ -101,11 +101,11 @@ Two goals:
 ### PHP enqueue
 
 - Always `wp_enqueue_script_module( '@wordpress/abilities' )` so the import map exists
-- Register shared modules on `init` (see `contributor_day_register_chat_modules`) so both the editor and the standalone screen can enqueue them
+- Register shared modules on `init` (see `agentic_editor_register_chat_modules`) so both the editor and the standalone screen can enqueue them
 - Import submodules by their import-map ID, never by relative path. A relative import produces a second copy of the module under a different URL, which silently splits module-level state such as the local tool registry
 - Script modules cannot be localized — pass data with the `script_module_data_{$module_id}` filter and read the JSON tag on the client
 - Version scripts with `filemtime` for cache busting during development
-- Any screen showing the chat must also `wp_enqueue_script()` the `react`, `react-dom`, and `react-jsx-runtime` handles. They are classic scripts, so they run before the deferred module that reads them — `contributor_day_enqueue_chat()` already does this
+- Any screen showing the chat must also `wp_enqueue_script()` the `react`, `react-dom`, and `react-jsx-runtime` handles. They are classic scripts, so they run before the deferred module that reads them — `agentic_editor_enqueue_chat()` already does this
 - The built entry is enqueued as a **script module**, not a classic script, because it imports the two externals by their import-map IDs
 
 ## Commands
@@ -118,7 +118,7 @@ npm run typecheck    # tsc --noEmit
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules
-npm run zip          # Build, then write dist/contributor-day.zip (gitignored)
+npm run zip          # Build, then write dist/agentic-editor.zip (gitignored)
 ```
 
 `build/` is gitignored, so a fresh checkout has no panel until `npm run build` runs. PHP shows an admin notice saying exactly that rather than rendering nothing.
@@ -127,8 +127,8 @@ npm run zip          # Build, then write dist/contributor-day.zip (gitignored)
 
 After JS changes, hard-refresh the block editor (`post-new.php` or edit post):
 
-1. Console: `[contributor-day] Registered editor abilities with WebMCP: …` **or** a clear “WebMCP unavailable” message
-2. `window.contributorDayEditorAbilities.webmcp.registered` lists every registered ability
+1. Console: `[agentic-editor] Registered editor abilities with WebMCP: …` **or** a clear “WebMCP unavailable” message
+2. `window.agenticEditorAbilities.webmcp.registered` lists every registered ability
 3. `await document.modelContext.getTools()` returns every tool, with or without the Chrome flag
 4. With WebMCP flag + inspector: tools remain visible (they must not disappear after load)
 5. Spot-check one read tool (`editor_get-editor-tree`) and one write tool (`editor_move-block`)
@@ -137,7 +137,7 @@ After chat changes, run `npm run build` first, then:
 
 1. The **AI Chat** sidebar opens from the editor's Plugins menu, and the tool count next to Send matches the ability count
 2. **Tools → AI Chat** renders the same panel and reports no page tools
-3. Without a connector, both say so instead of failing on send, and `GET /wp-json/contributor-day/v1/chat/status` reports `hasAiClient: true`
+3. Without a connector, both say so instead of failing on send, and `GET /wp-json/agentic-editor/v1/chat/status` reports `hasAiClient: true`
 4. With a connector, a prompt that needs the editor ("summarize the blocks in this post") shows tool calls resolving to `Done` before the answer
 5. `window.React.version` is WordPress's React, and the console has no "two copies of React" or invalid-hook warnings
 6. wp-admin still looks like wp-admin on the screens the chat loads on — an `h1` on **Tools → AI Chat** stays 23px, which is the tell that Preflight has not leaked
@@ -174,7 +174,7 @@ To mount the chat on another screen:
 
 1. Add `src/entries/<name>.tsx`, importing `@/styles/chat.css` and rendering `<ChatPanel getContext={…} suggestions={…} />`
 2. Add the entry to `build.rollupOptions.input` in `vite.config.ts`
-3. Enqueue it with `contributor_day_enqueue_chat( '@contributor-day/chat-<name>', 'chat-<name>.js' )`
+3. Enqueue it with `agentic_editor_enqueue_chat( '@agentic-editor/chat-<name>', 'chat-<name>.js' )`
 4. Give the container a definite height in `css/chat-chrome.css`; the transcript scrolls, not the page
 5. Register any page-specific tools with WebMCP; the chat will offer them
 

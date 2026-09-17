@@ -6,12 +6,12 @@
  * browser and is replayed on every call, which keeps the endpoint stateless and
  * lets the same chat run on any admin screen.
  *
- * @package ContributorDay
+ * @package AgenticEditor
  */
 
 defined( 'ABSPATH' ) || exit;
 
-const CONTRIBUTOR_DAY_CHAT_NAMESPACE = 'contributor-day/v1';
+const AGENTIC_EDITOR_CHAT_NAMESPACE = 'agentic-editor/v1';
 
 /**
  * Capability required to talk to the chat endpoint.
@@ -22,15 +22,15 @@ const CONTRIBUTOR_DAY_CHAT_NAMESPACE = 'contributor-day/v1';
  *
  * @return string
  */
-function contributor_day_chat_capability() {
-	return (string) apply_filters( 'contributor_day_chat_capability', 'edit_posts' );
+function agentic_editor_chat_capability() {
+	return (string) apply_filters( 'agentic_editor_chat_capability', 'edit_posts' );
 }
 
 /**
  * @return bool
  */
-function contributor_day_user_can_chat() {
-	return current_user_can( contributor_day_chat_capability() );
+function agentic_editor_user_can_chat() {
+	return current_user_can( agentic_editor_chat_capability() );
 }
 
 /**
@@ -41,9 +41,9 @@ function contributor_day_user_can_chat() {
  *
  * @return string[]
  */
-function contributor_day_chat_model_preference() {
+function agentic_editor_chat_model_preference() {
 	return (array) apply_filters(
-		'contributor_day_chat_model_preference',
+		'agentic_editor_chat_model_preference',
 		array( 'claude-sonnet-4-6', 'gpt-5.4', 'gemini-3.1-pro-preview' )
 	);
 }
@@ -54,7 +54,7 @@ function contributor_day_chat_model_preference() {
  * @param array<string, mixed> $context Page context supplied by the client.
  * @return string
  */
-function contributor_day_chat_system_instruction( array $context = array() ) {
+function agentic_editor_chat_system_instruction( array $context = array() ) {
 	$lines = array(
 		'You are an assistant embedded in the WordPress admin of a site called "' . wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) . '".',
 		'You answer questions about the site and, when tools are available, act on it directly.',
@@ -79,34 +79,34 @@ function contributor_day_chat_system_instruction( array $context = array() ) {
 		$lines[] = wp_strip_all_tags( $context['notes'] );
 	}
 
-	return (string) apply_filters( 'contributor_day_chat_system_instruction', implode( "\n", $lines ), $context );
+	return (string) apply_filters( 'agentic_editor_chat_system_instruction', implode( "\n", $lines ), $context );
 }
 
 /**
  * Register the chat routes.
  */
-function contributor_day_register_chat_routes() {
+function agentic_editor_register_chat_routes() {
 	register_rest_route(
-		CONTRIBUTOR_DAY_CHAT_NAMESPACE,
+		AGENTIC_EDITOR_CHAT_NAMESPACE,
 		'/chat',
 		array(
 			'methods'             => WP_REST_Server::CREATABLE,
-			'callback'            => 'contributor_day_handle_chat_request',
-			'permission_callback' => 'contributor_day_user_can_chat',
+			'callback'            => 'agentic_editor_handle_chat_request',
+			'permission_callback' => 'agentic_editor_user_can_chat',
 		)
 	);
 
 	register_rest_route(
-		CONTRIBUTOR_DAY_CHAT_NAMESPACE,
+		AGENTIC_EDITOR_CHAT_NAMESPACE,
 		'/chat/status',
 		array(
 			'methods'             => WP_REST_Server::READABLE,
-			'callback'            => 'contributor_day_handle_chat_status_request',
-			'permission_callback' => 'contributor_day_user_can_chat',
+			'callback'            => 'agentic_editor_handle_chat_status_request',
+			'permission_callback' => 'agentic_editor_user_can_chat',
 		)
 	);
 }
-add_action( 'rest_api_init', 'contributor_day_register_chat_routes' );
+add_action( 'rest_api_init', 'agentic_editor_register_chat_routes' );
 
 /**
  * Whether the site has an AI connector that can generate text.
@@ -116,7 +116,7 @@ add_action( 'rest_api_init', 'contributor_day_register_chat_routes' );
  *
  * @return bool
  */
-function contributor_day_chat_is_available() {
+function agentic_editor_chat_is_available() {
 	if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 		return false;
 	}
@@ -126,7 +126,7 @@ function contributor_day_chat_is_available() {
 	}
 
 	$builder = wp_ai_client_prompt( 'test' )
-		->using_model_preference( ...contributor_day_chat_model_preference() );
+		->using_model_preference( ...agentic_editor_chat_model_preference() );
 
 	return (bool) $builder->is_supported_for_text_generation();
 }
@@ -136,14 +136,14 @@ function contributor_day_chat_is_available() {
  *
  * @return WP_REST_Response
  */
-function contributor_day_handle_chat_status_request() {
+function agentic_editor_handle_chat_status_request() {
 	$has_client = function_exists( 'wp_ai_client_prompt' );
 
 	return rest_ensure_response(
 		array(
-			'available'       => contributor_day_chat_is_available(),
+			'available'       => agentic_editor_chat_is_available(),
 			'hasAiClient'     => $has_client,
-			'modelPreference' => array_values( contributor_day_chat_model_preference() ),
+			'modelPreference' => array_values( agentic_editor_chat_model_preference() ),
 			'connectorsUrl'   => current_user_can( 'manage_options' )
 				? admin_url( 'options-connectors.php' )
 				: null,
@@ -157,11 +157,11 @@ function contributor_day_handle_chat_status_request() {
  * @param WP_REST_Request $request Request.
  * @return WP_REST_Response|WP_Error
  */
-function contributor_day_handle_chat_request( WP_REST_Request $request ) {
+function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 	if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 		return new WP_Error(
-			'contributor_day_no_ai_client',
-			__( 'This site does not have the WordPress AI Client. WordPress 7.0 or newer is required.', 'contributor-day' ),
+			'agentic_editor_no_ai_client',
+			__( 'This site does not have the WordPress AI Client. WordPress 7.0 or newer is required.', 'agentic-editor' ),
 			array( 'status' => 501 )
 		);
 	}
@@ -171,14 +171,14 @@ function contributor_day_handle_chat_request( WP_REST_Request $request ) {
 	$body = $request->get_json_params();
 	if ( ! is_array( $body ) ) {
 		return new WP_Error(
-			'contributor_day_invalid_body',
-			__( 'The request body must be a JSON object.', 'contributor-day' ),
+			'agentic_editor_invalid_body',
+			__( 'The request body must be a JSON object.', 'agentic-editor' ),
 			array( 'status' => 400 )
 		);
 	}
 
 	$tool_map = array();
-	$declarations = contributor_day_chat_build_declarations(
+	$declarations = agentic_editor_chat_build_declarations(
 		isset( $body['tools'] ) && is_array( $body['tools'] ) ? $body['tools'] : array(),
 		$tool_map
 	);
@@ -192,14 +192,14 @@ function contributor_day_handle_chat_request( WP_REST_Request $request ) {
 	$history_mode = ( isset( $body['historyMode'] ) && 'text' === $body['historyMode'] ) ? 'text' : 'native';
 
 	$generate = static function ( $mode ) use ( $wire_messages, $function_map, $context, $declarations ) {
-		$messages = contributor_day_chat_build_messages( $wire_messages, $function_map, $mode );
+		$messages = agentic_editor_chat_build_messages( $wire_messages, $function_map, $mode );
 		if ( is_wp_error( $messages ) ) {
 			return $messages;
 		}
 
 		$builder = wp_ai_client_prompt( $messages )
-			->using_system_instruction( contributor_day_chat_system_instruction( $context ) )
-			->using_model_preference( ...contributor_day_chat_model_preference() );
+			->using_system_instruction( agentic_editor_chat_system_instruction( $context ) )
+			->using_model_preference( ...agentic_editor_chat_model_preference() );
 
 		if ( ! empty( $declarations ) ) {
 			$builder = $builder->using_function_declarations( ...$declarations );
@@ -210,7 +210,7 @@ function contributor_day_handle_chat_request( WP_REST_Request $request ) {
 
 	$result = $generate( $history_mode );
 
-	if ( is_wp_error( $result ) && 'native' === $history_mode && contributor_day_chat_history_mode_failed( $result ) ) {
+	if ( is_wp_error( $result ) && 'native' === $history_mode && agentic_editor_chat_history_mode_failed( $result ) ) {
 		$history_mode = 'text';
 		$result       = $generate( $history_mode );
 	}
@@ -219,7 +219,7 @@ function contributor_day_handle_chat_request( WP_REST_Request $request ) {
 		return $result;
 	}
 
-	$response                = contributor_day_chat_format_result( $result, $tool_map );
+	$response                = agentic_editor_chat_format_result( $result, $tool_map );
 	$response['historyMode'] = $history_mode;
 
 	return rest_ensure_response( $response );
@@ -236,7 +236,7 @@ function contributor_day_handle_chat_request( WP_REST_Request $request ) {
  * @param array<string, string> $tool_map Filled with function name => tool name.
  * @return array<int, \WordPress\AiClient\Tools\DTO\FunctionDeclaration>
  */
-function contributor_day_chat_build_declarations( array $tools, array &$tool_map ) {
+function agentic_editor_chat_build_declarations( array $tools, array &$tool_map ) {
 	$declarations = array();
 
 	foreach ( $tools as $tool ) {
@@ -244,13 +244,13 @@ function contributor_day_chat_build_declarations( array $tools, array &$tool_map
 			continue;
 		}
 
-		$function_name = contributor_day_chat_function_name( $tool['name'], $tool_map );
+		$function_name = agentic_editor_chat_function_name( $tool['name'], $tool_map );
 		$description   = isset( $tool['description'] ) && is_string( $tool['description'] ) && '' !== trim( $tool['description'] )
 			? $tool['description']
 			: $tool['name'];
 
 		$parameters = isset( $tool['inputSchema'] ) && is_array( $tool['inputSchema'] )
-			? contributor_day_chat_prepare_parameters( $tool['inputSchema'] )
+			? agentic_editor_chat_prepare_parameters( $tool['inputSchema'] )
 			: null;
 
 		$tool_map[ $function_name ] = $tool['name'];
@@ -275,7 +275,7 @@ function contributor_day_chat_build_declarations( array $tools, array &$tool_map
  * @param array<string, string> $taken     Function names already in use.
  * @return string
  */
-function contributor_day_chat_function_name( $tool_name, array $taken ) {
+function agentic_editor_chat_function_name( $tool_name, array $taken ) {
 	$name = preg_replace( '/[^a-zA-Z0-9_-]/', '_', $tool_name );
 	$name = trim( (string) $name, '-' );
 
@@ -309,12 +309,12 @@ function contributor_day_chat_function_name( $tool_name, array $taken ) {
  * @param array<string, mixed> $schema Input schema.
  * @return array<string, mixed>|null
  */
-function contributor_day_chat_prepare_parameters( array $schema ) {
+function agentic_editor_chat_prepare_parameters( array $schema ) {
 	if ( empty( $schema['properties'] ) || ! is_array( $schema['properties'] ) ) {
 		return null;
 	}
 
-	$prepared = contributor_day_chat_prepare_schema( $schema );
+	$prepared = agentic_editor_chat_prepare_schema( $schema );
 
 	return is_array( $prepared ) ? $prepared : null;
 }
@@ -336,7 +336,7 @@ function contributor_day_chat_prepare_parameters( array $schema ) {
  * @param mixed $schema Schema fragment.
  * @return mixed
  */
-function contributor_day_chat_prepare_schema( $schema ) {
+function agentic_editor_chat_prepare_schema( $schema ) {
 	if ( ! is_array( $schema ) ) {
 		return $schema;
 	}
@@ -358,14 +358,14 @@ function contributor_day_chat_prepare_schema( $schema ) {
 		}
 
 		foreach ( $schema[ $key ] as $name => $sub_schema ) {
-			$schema[ $key ][ $name ] = contributor_day_chat_prepare_schema( $sub_schema );
+			$schema[ $key ][ $name ] = agentic_editor_chat_prepare_schema( $sub_schema );
 		}
 	}
 
 	// Keys holding a single sub-schema.
 	foreach ( array( 'items', 'additionalProperties', 'not', 'if', 'then', 'else' ) as $key ) {
 		if ( isset( $schema[ $key ] ) && is_array( $schema[ $key ] ) ) {
-			$schema[ $key ] = contributor_day_chat_prepare_schema( $schema[ $key ] );
+			$schema[ $key ] = agentic_editor_chat_prepare_schema( $schema[ $key ] );
 		}
 	}
 
@@ -376,7 +376,7 @@ function contributor_day_chat_prepare_schema( $schema ) {
 		}
 
 		foreach ( $schema[ $key ] as $index => $sub_schema ) {
-			$schema[ $key ][ $index ] = contributor_day_chat_prepare_schema( $sub_schema );
+			$schema[ $key ][ $index ] = agentic_editor_chat_prepare_schema( $sub_schema );
 		}
 	}
 
@@ -386,7 +386,7 @@ function contributor_day_chat_prepare_schema( $schema ) {
 	 * shape, but the tool reports that itself instead of the request being
 	 * rejected before any tool is usable.
 	 */
-	if ( contributor_day_chat_schema_is_array( $schema ) && ! isset( $schema['items'] ) ) {
+	if ( agentic_editor_chat_schema_is_array( $schema ) && ! isset( $schema['items'] ) ) {
 		$schema['items'] = array( 'type' => 'string' );
 	}
 
@@ -397,7 +397,7 @@ function contributor_day_chat_prepare_schema( $schema ) {
  * @param array<string, mixed> $schema Schema fragment.
  * @return bool
  */
-function contributor_day_chat_schema_is_array( array $schema ) {
+function agentic_editor_chat_schema_is_array( array $schema ) {
 	return isset( $schema['type'] ) && 'array' === $schema['type'];
 }
 
@@ -410,7 +410,7 @@ function contributor_day_chat_schema_is_array( array $schema ) {
  * model sees its own tool calls as tool calls.
  *
  * In `text` mode, tool calls and their results are replayed as a plain text
- * transcript instead. See contributor_day_chat_history_mode_failed() for the
+ * transcript instead. See agentic_editor_chat_history_mode_failed() for the
  * provider this exists for.
  *
  * @param array<int, mixed>     $messages     Wire-format messages.
@@ -418,7 +418,7 @@ function contributor_day_chat_schema_is_array( array $schema ) {
  * @param string                $mode         `native` or `text`.
  * @return array<int, \WordPress\AiClient\Messages\DTO\Message>|WP_Error
  */
-function contributor_day_chat_build_messages( array $messages, array $function_map, $mode = 'native' ) {
+function agentic_editor_chat_build_messages( array $messages, array $function_map, $mode = 'native' ) {
 	$built    = array();
 	$as_text  = 'text' === $mode;
 	$tool_map = array_flip( $function_map );
@@ -446,7 +446,7 @@ function contributor_day_chat_build_messages( array $messages, array $function_m
 					}
 
 					if ( $as_text ) {
-						$text = contributor_day_chat_parts_as_text( $message['parts'], $tool_map );
+						$text = agentic_editor_chat_parts_as_text( $message['parts'], $tool_map );
 						if ( '' === $text ) {
 							continue 2;
 						}
@@ -516,10 +516,10 @@ function contributor_day_chat_build_messages( array $messages, array $function_m
 			}
 		} catch ( Exception $e ) {
 			return new WP_Error(
-				'contributor_day_invalid_message',
+				'agentic_editor_invalid_message',
 				sprintf(
 					/* translators: %s: error message from the AI Client. */
-					__( 'The conversation could not be replayed: %s', 'contributor-day' ),
+					__( 'The conversation could not be replayed: %s', 'agentic-editor' ),
 					$e->getMessage()
 				),
 				array( 'status' => 400 )
@@ -529,8 +529,8 @@ function contributor_day_chat_build_messages( array $messages, array $function_m
 
 	if ( empty( $built ) ) {
 		return new WP_Error(
-			'contributor_day_empty_conversation',
-			__( 'Send at least one message.', 'contributor-day' ),
+			'agentic_editor_empty_conversation',
+			__( 'Send at least one message.', 'agentic-editor' ),
 			array( 'status' => 400 )
 		);
 	}
@@ -545,7 +545,7 @@ function contributor_day_chat_build_messages( array $messages, array $function_m
  * @param array<string, string> $tool_map Function name => tool name.
  * @return string
  */
-function contributor_day_chat_parts_as_text( array $parts, array $tool_map ) {
+function agentic_editor_chat_parts_as_text( array $parts, array $tool_map ) {
 	$lines = array();
 
 	foreach ( $parts as $part ) {
@@ -587,7 +587,7 @@ function contributor_day_chat_parts_as_text( array $parts, array $tool_map ) {
  * @param WP_Error $error Generation failure.
  * @return bool
  */
-function contributor_day_chat_history_mode_failed( WP_Error $error ) {
+function agentic_editor_chat_history_mode_failed( WP_Error $error ) {
 	return false !== stripos( $error->get_error_message(), 'thought_signature' );
 }
 
@@ -598,7 +598,7 @@ function contributor_day_chat_history_mode_failed( WP_Error $error ) {
  * @param array<string, string>                             $tool_map Function name => tool name.
  * @return array<string, mixed>
  */
-function contributor_day_chat_format_result( $result, array $tool_map ) {
+function agentic_editor_chat_format_result( $result, array $tool_map ) {
 	$message = $result->toMessage();
 
 	$parts      = array();
@@ -632,7 +632,7 @@ function contributor_day_chat_format_result( $result, array $tool_map ) {
 		),
 		'text'      => $text,
 		'toolCalls' => $tool_calls,
-		'meta'      => contributor_day_chat_result_meta( $result ),
+		'meta'      => agentic_editor_chat_result_meta( $result ),
 	);
 }
 
@@ -642,7 +642,7 @@ function contributor_day_chat_format_result( $result, array $tool_map ) {
  * @param \WordPress\AiClient\Results\DTO\GenerativeAiResult $result Result.
  * @return array<string, mixed>
  */
-function contributor_day_chat_result_meta( $result ) {
+function agentic_editor_chat_result_meta( $result ) {
 	$meta = array();
 
 	foreach ( array(
