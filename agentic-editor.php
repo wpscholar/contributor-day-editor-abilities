@@ -5,7 +5,7 @@
  * Version:           0.1.0
  * Requires at least: 7.0
  * Requires PHP:      7.4
- * Author:            Agentic Editor
+ * Author:            Micah Wood
  * License:           GPL-2.0-or-later
  * Text Domain:       agentic-editor
  *
