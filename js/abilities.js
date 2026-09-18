@@ -463,8 +463,9 @@ function collectBlocks(
 }
 
 /**
- * Compare an attribute against the requested value as a string. Objects and
- * arrays are compared by their JSON form.
+ * Compare an attribute against the requested value as a string. RichTextData
+ * (rich-text attributes like paragraph/heading `content`) compares as its
+ * rendered text; other objects and arrays compare by their JSON form.
  *
  * @param {unknown} attributeValue
  * @param {string}  expected
@@ -473,6 +474,9 @@ function collectBlocks(
 function attributeMatchesValue( attributeValue, expected ) {
 	if ( attributeValue === null || attributeValue === undefined ) {
 		return false;
+	}
+	if ( isRichTextValue( attributeValue ) ) {
+		return attributeValue.toString() === expected;
 	}
 	if ( typeof attributeValue === 'object' ) {
 		return JSON.stringify( attributeValue ) === expected;
