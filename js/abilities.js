@@ -500,6 +500,21 @@ function toSearchableText( value ) {
 }
 
 /**
+ * Rich-text attributes (e.g. paragraph/heading `content`) are RichTextData
+ * instances, not plain strings, so a `typeof === 'string'` check misses them.
+ *
+ * @param {unknown} value
+ * @return {boolean}
+ */
+function isRichTextValue( value ) {
+	return (
+		!! value &&
+		typeof value === 'object' &&
+		typeof value.toHTMLString === 'function'
+	);
+}
+
+/**
  * Case-insensitive substring match against every string attribute of a block.
  *
  * @param {Object} block
@@ -509,12 +524,13 @@ function toSearchableText( value ) {
 function blockMatchesSearch( block, search ) {
 	const needle = search.toLowerCase();
 	return Object.values( block.attributes || {} ).some( ( value ) => {
-		if ( typeof value !== 'string' ) {
+		if ( typeof value !== 'string' && ! isRichTextValue( value ) ) {
 			return false;
 		}
+		const text = typeof value === 'string' ? value : value.toString();
 		return (
-			value.toLowerCase().includes( needle ) ||
-			toSearchableText( value ).includes( needle )
+			text.toLowerCase().includes( needle ) ||
+			toSearchableText( text ).includes( needle )
 		);
 	} );
 }
@@ -536,6 +552,41 @@ function requireBlock( store, clientId, label = 'clientId' ) {
 }
 
 /**
+ * A freshly inserted container has no list settings until the editor canvas
+ * renders its InnerBlocks, a React pass that lags the data-store insert by a
+ * render or two. Until then, canInsertBlockType(...) can't see the parent's
+ * allowed-children rules and wrongly rejects every child. Wait for that
+ * render rather than trusting a stale "no settings" read.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ * @param {number}  [timeoutMs]
+ */
+async function waitForBlockListSettings( store, rootClientId, timeoutMs = 1000 ) {
+	if (
+		! rootClientId ||
+		store.getBlockListSettings( rootClientId ) !== undefined
+	) {
+		return;
+	}
+
+	const { subscribe } = getData();
+	await new Promise( ( resolve ) => {
+		const unsubscribe = subscribe( () => {
+			if ( store.getBlockListSettings( rootClientId ) !== undefined ) {
+				finish();
+			}
+		} );
+		const timer = window.setTimeout( finish, timeoutMs );
+		function finish() {
+			window.clearTimeout( timer );
+			unsubscribe();
+			resolve();
+		}
+	} );
+}
+
+/**
  * Ensure a block type is allowed at a location, with an actionable reason when
  * it is not.
  *
@@ -543,7 +594,9 @@ function requireBlock( store, clientId, label = 'clientId' ) {
  * @param {string}  name         Block name to insert.
  * @param {?string} rootClientId Destination parent, empty for the root.
  */
-function assertCanInsert( store, name, rootClientId ) {
+async function assertCanInsert( store, name, rootClientId ) {
+	await waitForBlockListSettings( store, rootClientId );
+
 	if ( store.canInsertBlockType( name, rootClientId || undefined ) ) {
 		return;
 	}
@@ -1557,7 +1610,7 @@ export function registerEditorAbilities() {
 				index = store.getBlockIndex( input.afterClientId ) + 1;
 			}
 
-			assertCanInsert( store, input.name, effectiveRootClientId );
+			await assertCanInsert( store, input.name, effectiveRootClientId );
 
 			const block = buildBlock( {
 				name: input.name,
@@ -1739,6 +1792,10 @@ export function registerEditorAbilities() {
 				throw new Error(
 					'A block cannot be moved into one of its own descendants.'
 				);
+			}
+
+			if ( toRootClientId !== fromRootClientId ) {
+				await waitForBlockListSettings( store, toRootClientId );
 			}
 
 			if (
@@ -2039,6 +2096,8 @@ export function registerEditorAbilities() {
 				requireBlock( store, rootClientId, 'rootClientId' );
 			}
 
+			await waitForBlockListSettings( store, rootClientId );
+
 			const canInsert = store.canInsertBlockType(
 				name,
 				rootClientId || undefined
@@ -2145,6 +2204,10 @@ export function registerEditorAbilities() {
 			const needle = input.search?.toLowerCase();
 			const filterInsertable =
 				input.insertableOnly || !! input.rootClientId;
+
+			if ( filterInsertable ) {
+				await waitForBlockListSettings( store, input.rootClientId );
+			}
 
 			const matches = all
 				.filter( ( blockType ) => {
@@ -2356,7 +2419,7 @@ export function registerEditorAbilities() {
 			// The result has to be allowed where the original block sits, or
 			// the store drops the replacement without saying why.
 			for ( const created of transformed ) {
-				assertCanInsert( store, created.name, rootClientId );
+				await assertCanInsert( store, created.name, rootClientId );
 			}
 
 			await actions.replaceBlocks( input.clientId, transformed );
@@ -2624,6 +2687,10 @@ export function registerEditorAbilities() {
 
 			const all = await loadPatterns();
 			const needle = input.search?.toLowerCase();
+
+			if ( input.rootClientId ) {
+				await waitForBlockListSettings( store, input.rootClientId );
+			}
 
 			const matches = all
 				.filter( ( pattern ) => {
@@ -2957,7 +3024,7 @@ export function registerEditorAbilities() {
 			}
 
 			for ( const block of blocks ) {
-				assertCanInsert( store, block.name, effectiveRootClientId );
+				await assertCanInsert( store, block.name, effectiveRootClientId );
 			}
 
 			await actions.insertBlocks(
@@ -3180,7 +3247,7 @@ export function registerEditorAbilities() {
 
 			if ( siblingRange ) {
 				requireBlockType( PATTERN_BLOCK_NAME );
-				assertCanInsert(
+				await assertCanInsert(
 					store,
 					PATTERN_BLOCK_NAME,
 					siblingRange.rootClientId
