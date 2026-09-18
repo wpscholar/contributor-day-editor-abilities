@@ -189,8 +189,18 @@ The chat panel is compiled, so `npm run build` is required before it will appear
 | `npm run start:reset` | Wipe stored site data and restart |
 | `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |
 | `npm run zip` | Build, then create `dist/agentic-editor.zip` for distribution |
+| `npm run start:ai` | Start Playground with the Google connector installed and authenticated from `$GOOGLE_API_KEY` |
+| `npm run start:ai:reset` | Same, wiping stored site data first |
 
 To exercise the chat, install one of the official provider plugins ([Anthropic](https://wordpress.org/plugins/ai-provider-for-anthropic/), [Google](https://wordpress.org/plugins/ai-provider-for-google/), [OpenAI](https://wordpress.org/plugins/ai-provider-for-openai/)) and add an API key under **Settings → Connectors**. Without one, the panel loads and says so rather than failing on send.
+
+For local dev or CI without clicking through that screen, every connector also reads its key from an environment variable or PHP constant before the database, so no UI is required. For Google that's `GOOGLE_API_KEY` ([get a key](https://aistudio.google.com/api-keys)) — set it in your shell and run:
+
+```bash
+GOOGLE_API_KEY=your-key-here npm run start:ai
+```
+
+`npm run start:ai` installs and activates the Google connector plugin via `bin/blueprints/install-google-connector.json`, then passes `GOOGLE_API_KEY` through as a PHP constant (`--define`), which `wp_get_connector( 'google' )` checks ahead of the database. The key never touches the options table, a form field, or this repo. Anthropic and OpenAI follow the same convention: `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` respectively, once their connector plugins are installed.
 
 ## Testing WebMCP
 

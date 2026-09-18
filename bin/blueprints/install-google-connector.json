@@ -1,0 +1,18 @@
+{
+	"landingPage": "/wp-admin/",
+	"steps": [
+		{
+			"step": "installPlugin",
+			"pluginData": {
+				"resource": "url",
+				"url": "https://downloads.wordpress.org/plugin/ai-provider-for-google.zip"
+			},
+			"options": {
+				"activate": true
+			}
+		},
+		{
+			"step": "login"
+		}
+	]
+}

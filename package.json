@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit",
     "start": "wp-playground-cli start --skip-browser --wp=latest",
     "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
+    "start:ai": "wp-playground-cli start --skip-browser --wp=latest --blueprint bin/blueprints/install-google-connector.json --define GOOGLE_API_KEY \"$GOOGLE_API_KEY\"",
+    "start:ai:reset": "wp-playground-cli start --skip-browser --wp=latest --reset --blueprint bin/blueprints/install-google-connector.json --define GOOGLE_API_KEY \"$GOOGLE_API_KEY\"",
     "vendor": "bash bin/vendor-webmcp-polyfill.sh",
     "zip": "bash bin/build-zip.sh",
     "test:e2e": "playwright test",
