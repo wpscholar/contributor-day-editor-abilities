@@ -17,7 +17,11 @@ export default defineConfig( {
 	projects: [ { name: 'chromium', use: { ...devices[ 'Desktop Chrome' ] } } ],
 	webServer: {
 		command: 'npm start',
-		url: 'http://127.0.0.1:9400/wp-admin/',
+		// A static file, not /wp-admin/: WP Playground's auto-login flow answers
+		// every authenticated URL with a self-redirecting 302 that sets a fresh
+		// cookie each time. Playwright's readiness prober follows redirects but
+		// doesn't persist cookies between hops, so it loops on that 302 forever.
+		url: 'http://127.0.0.1:9400/readme.html',
 		reuseExistingServer: ! process.env.CI,
 		timeout: 120_000,
 	},
