@@ -72,6 +72,34 @@ test.describe( 'inspecting the editor', () => {
 		expect( found.value.blocks[ 0 ].attributes.dropCap ).toBe( true );
 	} );
 
+	// A RichText attribute (paragraph/heading `content`, etc.) is a
+	// RichTextData object at runtime, not a plain string. attribute+value
+	// matching has to compare against its rendered text rather than treating
+	// it like any other object attribute (see issue #3).
+	test( 'editor/find-editor-blocks filters by attribute value on a RichText attribute', async ( {
+		callTool,
+	} ) => {
+		await callTool( 'editor_insert-block', {
+			name: 'core/paragraph',
+			attributes: { content: 'Exact rich text match' },
+		} );
+		await callTool( 'editor_insert-block', {
+			name: 'core/paragraph',
+			attributes: { content: 'A different paragraph' },
+		} );
+
+		const found = await callTool( 'editor_find-editor-blocks', {
+			name: 'core/paragraph',
+			attribute: 'content',
+			value: 'Exact rich text match',
+		} );
+		expect( found.isError ).toBe( false );
+		expect( found.value.count ).toBe( 1 );
+		expect( found.value.blocks[ 0 ].attributes.content ).toBe(
+			'Exact rich text match'
+		);
+	} );
+
 	test( 'editor/get-block-location reports parents, root, and index', async ( { callTool } ) => {
 		await callTool( 'editor_insert-block', {
 			name: 'core/columns',

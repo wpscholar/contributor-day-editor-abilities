@@ -5,3 +5,5 @@ node_modules/
 build/
 dist/
 *.zip
+test-results/
+playwright-report/
