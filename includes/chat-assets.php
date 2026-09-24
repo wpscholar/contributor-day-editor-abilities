@@ -113,7 +113,7 @@ function agentic_editor_chat_module_data( $data ) {
 			'connectorsUrl' => current_user_can( 'manage_options' )
 				? admin_url( 'options-connectors.php' )
 				: null,
-			'maxToolRounds' => (int) apply_filters( 'agentic_editor_chat_max_tool_rounds', 8 ),
+			'maxToolRounds' => agentic_editor_chat_max_tool_rounds(),
 			'siteName'      => wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ),
 		)
 	);

@@ -127,9 +127,10 @@ createRoot( document.getElementById( 'my-chat' )! ).render(
 | `agentic_editor_chat_capability` | Capability required to use the chat. Defaults to `edit_posts` |
 | `agentic_editor_chat_model_preference` | Preferred models, best first |
 | `agentic_editor_chat_system_instruction` | The full system instruction |
-| `agentic_editor_chat_max_tool_rounds` | Tool rounds per message. Defaults to `8` |
+| `agentic_editor_chat_max_tool_rounds` | Tool rounds per message, enforced by the browser and the endpoint. Defaults to `8` |
+| `agentic_editor_chat_limits` | Per-request limits: `max_body_bytes` (1 MB), `max_messages` (200), `max_tools` (128), `max_context_chars` (2000) and `requests_per_minute` per user (30). `0` turns a limit off |
 
-The endpoint runs arbitrary prompts against the site's connector, so it is gated on a capability rather than on being logged in. Narrow `agentic_editor_chat_capability` if `edit_posts` is too broad for your site.
+The endpoint runs prompts against the site's connector, and the conversation, tool declarations and page context all come from the browser. Anyone with the chat capability can therefore spend the site's AI credit on prompts of their choosing, within the limits above. It is gated on a capability rather than on being logged in, and the default, `edit_posts`, includes Contributors. Narrow `agentic_editor_chat_capability` if that is too broad for your site.
 
 ## Project layout
 

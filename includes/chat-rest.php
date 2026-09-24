@@ -34,6 +34,150 @@ function agentic_editor_user_can_chat() {
 }
 
 /**
+ * Rounds of tool calls the model may make for one user message.
+ *
+ * The browser runs the tool loop and stops itself at this count; the endpoint
+ * enforces the same count, since the browser is not the one paying.
+ *
+ * @return int
+ */
+function agentic_editor_chat_max_tool_rounds() {
+	return max( 1, (int) apply_filters( 'agentic_editor_chat_max_tool_rounds', 8 ) );
+}
+
+/**
+ * Hard limits on what one chat request may send.
+ *
+ * Everything in a request is client-supplied, and every request is paid for
+ * with the site's connector, so the endpoint bounds its size and rate itself.
+ * A limit of 0 turns that limit off.
+ *
+ * @return array{max_body_bytes: int, max_messages: int, max_tools: int, max_context_chars: int, requests_per_minute: int}
+ */
+function agentic_editor_chat_limits() {
+	$defaults = array(
+		'max_body_bytes'      => MB_IN_BYTES,
+		'max_messages'        => 200,
+		'max_tools'           => 128,
+		'max_context_chars'   => 2000,
+		'requests_per_minute' => 30,
+	);
+
+	$limits = apply_filters( 'agentic_editor_chat_limits', $defaults );
+	$limits = is_array( $limits ) ? array_merge( $defaults, $limits ) : $defaults;
+
+	return array_map( 'absint', array_intersect_key( $limits, $defaults ) );
+}
+
+/**
+ * Reject a request that is larger than the limits allow.
+ *
+ * @param WP_REST_Request      $request Request.
+ * @param array<string, mixed> $body    Decoded body.
+ * @return true|WP_Error
+ */
+function agentic_editor_chat_check_limits( WP_REST_Request $request, array $body ) {
+	$limits = agentic_editor_chat_limits();
+
+	if ( $limits['max_body_bytes'] && strlen( (string) $request->get_body() ) > $limits['max_body_bytes'] ) {
+		return new WP_Error(
+			'agentic_editor_request_too_large',
+			__( 'This conversation is too long to send. Clear the chat and start again.', 'agentic-editor' ),
+			array( 'status' => 413 )
+		);
+	}
+
+	$messages = isset( $body['messages'] ) && is_array( $body['messages'] ) ? $body['messages'] : array();
+
+	if ( $limits['max_messages'] && count( $messages ) > $limits['max_messages'] ) {
+		return new WP_Error(
+			'agentic_editor_too_many_messages',
+			__( 'This conversation has too many messages to send. Clear the chat and start again.', 'agentic-editor' ),
+			array( 'status' => 400 )
+		);
+	}
+
+	if ( $limits['max_tools'] && isset( $body['tools'] ) && is_array( $body['tools'] ) && count( $body['tools'] ) > $limits['max_tools'] ) {
+		return new WP_Error(
+			'agentic_editor_too_many_tools',
+			__( 'This page offers the assistant more tools than the chat allows.', 'agentic-editor' ),
+			array( 'status' => 400 )
+		);
+	}
+
+	// Each round of the tool loop adds one tool turn after the user's message.
+	$rounds = 0;
+	foreach ( array_reverse( $messages ) as $message ) {
+		$role = is_array( $message ) && isset( $message['role'] ) ? $message['role'] : null;
+		if ( 'user' === $role ) {
+			break;
+		}
+		if ( 'tool' === $role ) {
+			++$rounds;
+		}
+	}
+
+	if ( $rounds > agentic_editor_chat_max_tool_rounds() ) {
+		return new WP_Error(
+			'agentic_editor_too_many_rounds',
+			sprintf(
+				/* translators: %d: maximum rounds of tool calls. */
+				__( 'The assistant stopped after %d rounds of tool calls.', 'agentic-editor' ),
+				agentic_editor_chat_max_tool_rounds()
+			),
+			array( 'status' => 400 )
+		);
+	}
+
+	return true;
+}
+
+/**
+ * Count one request against the current user's rate limit.
+ *
+ * A fixed one-minute window per user, kept in a transient. It is not atomic,
+ * so a burst of parallel requests can slip a few past the limit; it exists to
+ * stop a runaway or abusive client, not to meter exactly.
+ *
+ * @return true|WP_Error
+ */
+function agentic_editor_chat_check_rate_limit() {
+	$limit = agentic_editor_chat_limits()['requests_per_minute'];
+	if ( ! $limit ) {
+		return true;
+	}
+
+	$key    = 'agentic_editor_chat_rate_' . get_current_user_id();
+	$now    = time();
+	$window = get_transient( $key );
+
+	if ( ! is_array( $window ) || ! isset( $window['start'], $window['count'] ) || $now - (int) $window['start'] >= MINUTE_IN_SECONDS ) {
+		$window = array(
+			'start' => $now,
+			'count' => 0,
+		);
+	}
+
+	if ( (int) $window['count'] >= $limit ) {
+		$retry_after = max( 1, (int) $window['start'] + MINUTE_IN_SECONDS - $now );
+
+		return new WP_Error(
+			'agentic_editor_rate_limited',
+			__( 'The assistant is getting too many requests. Wait a moment and try again.', 'agentic-editor' ),
+			array(
+				'status'     => 429,
+				'retryAfter' => $retry_after,
+			)
+		);
+	}
+
+	++$window['count'];
+	set_transient( $key, $window, MINUTE_IN_SECONDS );
+
+	return true;
+}
+
+/**
  * Models this plugin would like, best first.
  *
  * Which of these exist depends entirely on the connectors the site configured,
@@ -70,13 +214,20 @@ function agentic_editor_chat_system_instruction( array $context = array() ) {
 		'- Use plain language and mention what you actually did, not the tool names you used.',
 	);
 
-	if ( ! empty( $context['screen'] ) ) {
+	// The context is client-supplied, so it is capped before it reaches the
+	// system instruction.
+	$max_chars = agentic_editor_chat_limits()['max_context_chars'];
+	$cap       = static function ( $text ) use ( $max_chars ) {
+		return $max_chars ? mb_substr( $text, 0, $max_chars ) : $text;
+	};
+
+	if ( ! empty( $context['screen'] ) && is_string( $context['screen'] ) ) {
 		$lines[] = '';
-		$lines[] = 'The user is on the "' . sanitize_text_field( (string) $context['screen'] ) . '" screen.';
+		$lines[] = 'The user is on the "' . $cap( sanitize_text_field( $context['screen'] ) ) . '" screen.';
 	}
 
 	if ( ! empty( $context['notes'] ) && is_string( $context['notes'] ) ) {
-		$lines[] = wp_strip_all_tags( $context['notes'] );
+		$lines[] = $cap( wp_strip_all_tags( $context['notes'] ) );
 	}
 
 	return (string) apply_filters( 'agentic_editor_chat_system_instruction', implode( "\n", $lines ), $context );
@@ -177,6 +328,11 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 		);
 	}
 
+	$within_limits = agentic_editor_chat_check_limits( $request, $body );
+	if ( is_wp_error( $within_limits ) ) {
+		return $within_limits;
+	}
+
 	$tool_map = array();
 	$declarations = agentic_editor_chat_build_declarations(
 		isset( $body['tools'] ) && is_array( $body['tools'] ) ? $body['tools'] : array(),
@@ -191,12 +347,21 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 	// the cost of discovering it at most once.
 	$history_mode = ( isset( $body['historyMode'] ) && 'text' === $body['historyMode'] ) ? 'text' : 'native';
 
-	$generate = static function ( $mode ) use ( $wire_messages, $function_map, $context, $declarations ) {
-		$messages = agentic_editor_chat_build_messages( $wire_messages, $function_map, $mode );
-		if ( is_wp_error( $messages ) ) {
-			return $messages;
-		}
+	$messages = agentic_editor_chat_build_messages( $wire_messages, $function_map, $history_mode );
+	if ( is_wp_error( $messages ) ) {
+		return $messages;
+	}
 
+	// Counted only once the request is known to reach the provider, so a
+	// rejected request never uses up the user's allowance.
+	$allowed = agentic_editor_chat_check_rate_limit();
+	if ( is_wp_error( $allowed ) ) {
+		$response = rest_convert_error_to_response( $allowed );
+		$response->header( 'Retry-After', (string) $allowed->get_error_data()['retryAfter'] );
+		return $response;
+	}
+
+	$generate = static function ( $messages ) use ( $context, $declarations ) {
 		$builder = wp_ai_client_prompt( $messages )
 			->using_system_instruction( agentic_editor_chat_system_instruction( $context ) )
 			->using_model_preference( ...agentic_editor_chat_model_preference() );
@@ -208,11 +373,12 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 		return $builder->generate_text_result();
 	};
 
-	$result = $generate( $history_mode );
+	$result = $generate( $messages );
 
 	if ( is_wp_error( $result ) && 'native' === $history_mode && agentic_editor_chat_history_mode_failed( $result ) ) {
 		$history_mode = 'text';
-		$result       = $generate( $history_mode );
+		$messages     = agentic_editor_chat_build_messages( $wire_messages, $function_map, $history_mode );
+		$result       = is_wp_error( $messages ) ? $messages : $generate( $messages );
 	}
 
 	if ( is_wp_error( $result ) ) {
