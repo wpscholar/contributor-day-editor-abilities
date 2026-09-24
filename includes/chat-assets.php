@@ -137,16 +137,17 @@ function agentic_editor_chat_is_built() {
  * @param string   $module_id  Script module ID to register the mount under.
  * @param string   $build_file Built entry file name, relative to the build directory.
  * @param string[] $extra_deps Additional script module dependencies.
+ * @return bool Whether the chat was enqueued; false for users who cannot chat or when there is no build.
  */
 function agentic_editor_enqueue_chat( $module_id, $build_file, array $extra_deps = array() ) {
 	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! agentic_editor_user_can_chat() ) {
-		return;
+		return false;
 	}
 
 	$path = AGENTIC_EDITOR_CHAT_BUILD_DIR . $build_file;
 
 	if ( ! file_exists( AGENTIC_EDITOR_PLUGIN_DIR . $path ) ) {
-		return;
+		return false;
 	}
 
 	wp_enqueue_style( 'agentic-editor-chat-chrome' );
@@ -175,6 +176,8 @@ function agentic_editor_enqueue_chat( $module_id, $build_file, array $extra_deps
 		),
 		agentic_editor_asset_version( $path )
 	);
+
+	return true;
 }
 
 /**

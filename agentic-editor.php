@@ -38,6 +38,23 @@ require_once AGENTIC_EDITOR_PLUGIN_DIR . 'includes/chat-assets.php';
 require_once AGENTIC_EDITOR_PLUGIN_DIR . 'includes/chat-admin-page.php';
 
 /**
+ * Whether the current screen is a post or site editor.
+ *
+ * `enqueue_block_editor_assets` also fires for the widgets screen and the
+ * Customizer, where the editor store these abilities drive is not the one on
+ * screen and core warns when `wp-editor` is loaded.
+ *
+ * @return bool
+ */
+function agentic_editor_is_supported_editor() {
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+	return $screen instanceof WP_Screen
+		&& $screen->is_block_editor()
+		&& in_array( $screen->base, array( 'post', 'site-editor' ), true );
+}
+
+/**
  * Enqueue editor abilities script module on block editor screens.
  *
  * Submodules are registered as dependencies rather than imported by relative
@@ -45,7 +62,7 @@ require_once AGENTIC_EDITOR_PLUGIN_DIR . 'includes/chat-admin-page.php';
  * carries its own version query.
  */
 function agentic_editor_enqueue_editor_abilities() {
-	if ( ! function_exists( 'wp_enqueue_script_module' ) ) {
+	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! agentic_editor_is_supported_editor() ) {
 		return;
 	}
 
@@ -119,12 +136,16 @@ add_action( 'enqueue_block_editor_assets', 'agentic_editor_enqueue_editor_abilit
  * `wp.plugins`, `wp.element`, and `wp.editor` on the page for it to read.
  */
 function agentic_editor_enqueue_editor_chat() {
-	agentic_editor_enqueue_chat(
+	if ( ! agentic_editor_is_supported_editor() ) {
+		return;
+	}
+
+	$enqueued = agentic_editor_enqueue_chat(
 		'@agentic-editor/chat-editor-sidebar',
 		'chat-editor-sidebar.js'
 	);
 
-	if ( ! agentic_editor_user_can_chat() ) {
+	if ( ! $enqueued ) {
 		return;
 	}
 
