@@ -30,31 +30,7 @@ export const test = base.extend< Fixtures >( {
 		): Promise< ToolResult > =>
 			editor.evaluate(
 				async ( { name, args } ) => {
-					// The `editor` fixture already confirmed modelContext exists once,
-					// but under load (many workers sharing one backend) the page can
-					// still be settling when this runs, so re-check rather than trust
-					// that earlier snapshot.
-					// Matches the `editor` fixture's own 15s budget below: under many
-					// parallel workers sharing one backend, this is genuinely slow to
-					// settle rather than transiently missing, so a short retry window
-					// just trades a hang for a flake.
-					const waitForModelContext = async ( timeoutMs = 15_000 ) => {
-						const started = Date.now();
-						while ( Date.now() - started < timeoutMs ) {
-							const current = ( document as any ).modelContext;
-							if ( current?.getTools ) {
-								return current;
-							}
-							await new Promise( ( resolve ) =>
-								setTimeout( resolve, 50 )
-							);
-						}
-						throw new Error(
-							'document.modelContext was not available in time.'
-						);
-					};
-
-					const modelContext = await waitForModelContext();
+					const modelContext = ( document as any ).modelContext;
 					const tools = await modelContext.getTools();
 					const tool = tools.find(
 						( candidate: { name: string } ) => candidate.name === name
