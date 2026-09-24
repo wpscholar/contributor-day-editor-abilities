@@ -431,7 +431,7 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 	}
 
 	if ( is_wp_error( $result ) ) {
-		return $result;
+		return agentic_editor_chat_generation_error( $result );
 	}
 
 	$response                = agentic_editor_chat_format_result( $result, $tool_map );
@@ -901,6 +901,47 @@ function agentic_editor_chat_parts_as_text( array $parts, array $tool_map ) {
  */
 function agentic_editor_chat_history_mode_failed( WP_Error $error ) {
 	return false !== stripos( $error->get_error_message(), 'thought_signature' );
+}
+
+/**
+ * Make a generation failure safe to show whoever sent the request.
+ *
+ * Provider errors can carry response bodies and server paths, so only site
+ * administrators, who own the connector, see the details. Everyone gets a
+ * 502 whatever the provider answered: a provider's 401 or 403 is about its
+ * credentials, and passing it through would read as the user's own session
+ * having expired. This plugin's own errors are already written for users and
+ * pass through unchanged.
+ *
+ * @param WP_Error $error Generation failure.
+ * @return WP_Error
+ */
+function agentic_editor_chat_generation_error( WP_Error $error ) {
+	if ( 0 === strpos( (string) $error->get_error_code(), 'agentic_editor_' ) ) {
+		return $error;
+	}
+
+	if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		error_log( sprintf( '[agentic-editor] Chat generation failed (%s): %s', $error->get_error_code(), $error->get_error_message() ) );
+	}
+
+	$message = current_user_can( 'manage_options' )
+		? sprintf(
+			/* translators: %s: error message from the AI provider. */
+			__( 'The AI provider could not answer: %s', 'agentic-editor' ),
+			$error->get_error_message()
+		)
+		: __( 'The AI provider could not answer this request. Try again, or ask a site administrator to check the AI connector.', 'agentic-editor' );
+
+	return new WP_Error(
+		'agentic_editor_generation_failed',
+		$message,
+		array(
+			'status' => 502,
+			'reason' => $error->get_error_code(),
+		)
+	);
 }
 
 /**
