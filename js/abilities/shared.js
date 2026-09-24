@@ -204,6 +204,65 @@ export function normalizeAttributes( blockName, attributes ) {
 }
 
 /**
+ * Attributes the editor uses to protect blocks rather than to hold content,
+ * with why an agent may not set them. Each of these is how a person locks
+ * something, so letting an agent write one would let it undo that lock.
+ */
+const RESERVED_ATTRIBUTES = {
+	metadata:
+		"it holds editor bookkeeping, including a locked pattern's identity, and overwriting it can silently remove that pattern's lock",
+	lock: 'it is the lock that controls whether the block can be moved or removed',
+	templateLock:
+		'it is the lock that controls whether what the block contains can be changed',
+};
+
+/**
+ * Refuse attributes that would change a block's locks instead of its content.
+ *
+ * @param {Object} attributes
+ * @param {string} [path] Field path, used in the error message.
+ */
+export function assertNoReservedAttributes( attributes, path = 'attributes' ) {
+	const reserved = Object.keys( attributes ).filter( ( key ) =>
+		Object.hasOwn( RESERVED_ATTRIBUTES, key )
+	);
+	if ( ! reserved.length ) {
+		return;
+	}
+
+	throw new Error(
+		`${ reserved
+			.map(
+				( key ) =>
+					`${ path }.${ key } cannot be set through this ability: ${ RESERVED_ATTRIBUTES[ key ] }.`
+			)
+			.join( ' ' ) } A person can change it from the editor instead.`
+	);
+}
+
+/**
+ * Attributes a block type marks as content: the only ones a person can edit
+ * while the block is in "contentOnly" editing mode.
+ *
+ * @param {string} blockName
+ * @return {string[]}
+ */
+export function getContentAttributeNames( blockName ) {
+	const attributes = getBlocksApi().getBlockType( blockName )?.attributes;
+	if ( ! attributes ) {
+		return [];
+	}
+
+	// Read directly rather than through getBlockAttributesNamesByRole, which
+	// logs a deprecation for every block still using __experimentalRole.
+	return Object.keys( attributes ).filter(
+		( key ) =>
+			attributes[ key ]?.role === 'content' ||
+			attributes[ key ]?.__experimentalRole === 'content'
+	);
+}
+
+/**
  * Reject nesting the editor would refuse anyway, before anything is inserted.
  *
  * @param {string} parentName
@@ -264,6 +323,10 @@ export function buildBlock( spec, path = '', parentName = null ) {
 	}
 	if ( parentName ) {
 		assertNestingAllowed( parentName, spec.name, path );
+	}
+
+	if ( isPlainObject( spec.attributes ) ) {
+		assertNoReservedAttributes( spec.attributes, field( 'attributes' ) );
 	}
 
 	const children = spec.innerBlocks ?? [];

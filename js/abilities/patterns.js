@@ -16,8 +16,9 @@ import {
 	requireBlock,
 	requireBlockType,
 	summarizeBlock,
+	trySelectBlock,
 	waitForBlockListSettings,
-} from './shared.js';
+} from '@agentic-editor/abilities/shared';
 
 const PATTERN_POST_TYPE = 'wp_block';
 const PATTERN_TAXONOMY = 'wp_pattern_category';
@@ -489,6 +490,37 @@ function requireSiblingRange( store, clientIds ) {
 		index: positions[ 0 ].index,
 		clientIds: positions.map( ( position ) => position.clientId ),
 	};
+}
+
+/**
+ * Ensure a run of sibling blocks can be swapped for a pattern reference.
+ *
+ * replaceBlocks checks only that the replacement may be inserted, not that the
+ * originals may be removed, so a remove lock has to be checked here.
+ *
+ * @param {Object}                                      store        Block editor store selectors.
+ * @param {{ rootClientId: string, clientIds: string[] }} siblingRange
+ */
+async function assertCanReplace( store, siblingRange ) {
+	const { rootClientId, clientIds } = siblingRange;
+
+	if ( store.canRemoveBlocks?.( clientIds ) === false ) {
+		await trySelectBlock( clientIds[ 0 ] );
+		const lockReason = describeEditingLock( store, rootClientId );
+		throw new Error(
+			lockReason
+				? `These blocks cannot be replaced by the pattern: ${ lockReason }`
+				: 'These blocks cannot be replaced by the pattern, because at least one of them is locked against removal. Save the pattern without replaceSource, or unlock the blocks in the editor first.'
+		);
+	}
+
+	requireBlockType( PATTERN_BLOCK_NAME );
+	await assertCanInsert(
+		store,
+		PATTERN_BLOCK_NAME,
+		rootClientId,
+		clientIds[ 0 ]
+	);
 }
 
 /**
@@ -979,7 +1011,7 @@ export function registerPatternAbilities() {
 		name: 'editor/create-pattern',
 		label: 'Create Pattern',
 		description:
-			'Saves blocks as a reusable pattern on this site, either blocks already in the document or a block structure supplied directly. Synced patterns stay linked everywhere they are used; unsynced ones are copied on insert.',
+			'Saves blocks as a reusable pattern on this site, either blocks already in the document or a block structure supplied directly. Synced patterns stay linked everywhere they are used; unsynced ones are copied on insert. The pattern is published immediately, separately from the post, and editor undo does not remove it.',
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
@@ -1063,7 +1095,7 @@ export function registerPatternAbilities() {
 		meta: {
 			annotations: {
 				readonly: false,
-				destructive: false,
+				destructive: true,
 				idempotent: false,
 			},
 		},
@@ -1109,6 +1141,9 @@ export function registerPatternAbilities() {
 						store,
 						input.clientIds
 					);
+					// Checked before saving: the pattern is published at once
+					// and cannot be taken back if the replacement then fails.
+					await assertCanReplace( store, siblingRange );
 				}
 			} else {
 				if ( input.replaceSource ) {
@@ -1162,14 +1197,6 @@ export function registerPatternAbilities() {
 			};
 
 			if ( siblingRange ) {
-				requireBlockType( PATTERN_BLOCK_NAME );
-				await assertCanInsert(
-					store,
-					PATTERN_BLOCK_NAME,
-					siblingRange.rootClientId,
-					siblingRange.clientIds[ 0 ]
-				);
-
 				const reference = getBlocksApi().createBlock(
 					PATTERN_BLOCK_NAME,
 					{ ref: record.id }

@@ -9,11 +9,13 @@ import {
 	CORE_STORE,
 	assertCanInsert,
 	assertEditorReady,
+	assertNoReservedAttributes,
 	buildBlock,
 	describeEditingLock,
 	ensureAbility,
 	ensureAbilityCategory,
 	getBlocksApi,
+	getContentAttributeNames,
 	getData,
 	getInnerBlocks,
 	isPlainObject,
@@ -24,7 +26,7 @@ import {
 	trySelectBlock,
 	waitForBlockListSettings,
 	withControlledRef,
-} from './shared.js';
+} from '@agentic-editor/abilities/shared';
 
 const EDITOR_STORE = 'core/editor';
 
@@ -972,17 +974,49 @@ export function registerBlockEditorAbilities() {
 				throw new Error( 'attributes must contain at least one key.' );
 			}
 
-			// `metadata` is editor bookkeeping, not block content: it is where a
-			// locked pattern instance records the pattern it came from, and
-			// because attributes are replaced whole rather than deep-merged, an
-			// update that omits patternName silently erases it, undoing the
-			// content-only lock protecting the pattern's structure elsewhere in
-			// this file. There is no legitimate content edit that needs this key.
-			if ( keys.includes( 'metadata' ) ) {
+			try {
+				assertNoReservedAttributes( input.attributes );
+			} catch ( error ) {
 				await trySelectBlock( input.clientId );
+				throw error;
+			}
+
+			// updateBlockAttributes ignores editing modes, so the modes a
+			// person would be held to are enforced here: nothing in a
+			// "disabled" block (such as the inside of a synced pattern, where
+			// an edit changes every copy), and only content in a
+			// "contentOnly" one.
+			const editingMode = store.getBlockEditingMode?.( input.clientId );
+
+			if ( editingMode === 'disabled' ) {
+				await trySelectBlock( input.clientId );
+				const lockReason = describeEditingLock( store, input.clientId );
 				throw new Error(
-					'attributes.metadata cannot be set through this ability: it holds editor bookkeeping (including a locked pattern\'s identity), not block content, and overwriting it can silently remove a pattern\'s lock. Rename a block or change its lock from the editor instead.'
+					lockReason
+						? `Block "${ block.name }" cannot be updated: ${ lockReason }`
+						: `Block "${ block.name }" cannot be updated: it is locked against editing in the editor.`
 				);
+			}
+
+			if ( editingMode === 'contentOnly' ) {
+				const contentKeys = getContentAttributeNames( block.name );
+				const structural = keys.filter(
+					( key ) => ! contentKeys.includes( key )
+				);
+				if ( structural.length ) {
+					await trySelectBlock( input.clientId );
+					throw new Error(
+						`Block "${ block.name }" is locked so that only its content can be edited, which rules out ${ structural.join(
+							', '
+						) }. ${
+							contentKeys.length
+								? `Its content attributes are: ${ contentKeys.join(
+										', '
+								  ) }.`
+								: 'It has no content attributes that can be edited here.'
+						}`
+					);
+				}
 			}
 
 			const attributes = normalizeAttributes(
@@ -1516,6 +1550,18 @@ export function registerBlockEditorAbilities() {
 			const rootClientId =
 				store.getBlockRootClientId( input.clientId ) || '';
 			const index = store.getBlockIndex( input.clientId );
+
+			// replaceBlocks checks only the destination, so a block locked
+			// against removal would otherwise be replaced anyway.
+			if ( store.canRemoveBlock?.( input.clientId ) === false ) {
+				await trySelectBlock( input.clientId );
+				const lockReason = describeEditingLock( store, rootClientId );
+				throw new Error(
+					lockReason
+						? `Block "${ block.name }" cannot be transformed: ${ lockReason }`
+						: `Block "${ block.name }" cannot be transformed, because it is locked against removal. A person needs to unlock it in the editor first.`
+				);
+			}
 
 			const transformed = switchToBlockType( block, input.name );
 			if ( ! transformed || ! transformed.length ) {
