@@ -42,6 +42,27 @@ export const test = base.extend< Fixtures >( {
 			{ timeout: 15_000 }
 		);
 
+		// Tools register before the editor finishes booting. Until core/editor
+		// is ready, an insert records no undo step; until the canvas renders,
+		// containers have no block-list settings. Tests must not race either.
+		await page.waitForFunction(
+			() => {
+				const w = window as any;
+				const editorReady = w.wp?.data
+					?.select( 'core/editor' )
+					?.__unstableIsEditorReady?.();
+				const canvas = document.querySelector(
+					'iframe[name="editor-canvas"]'
+				) as HTMLIFrameElement | null;
+				const root = (
+					canvas?.contentDocument ?? document
+				).querySelector( '.is-root-container' );
+				return !! editorReady && !! root;
+			},
+			null,
+			{ timeout: 15_000 }
+		);
+
 		await use( page );
 	},
 
