@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { STORAGE_STATE } from './tests/e2e/global-setup';
 
 /**
  * Runs against a real WordPress editor served by wp-playground-cli (`npm start`),
@@ -6,21 +7,18 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig( {
 	testDir: './tests/e2e',
+	globalSetup: './tests/e2e/global-setup.ts',
 	fullyParallel: true,
-	// All workers share the one wp-playground-cli backend below, and it can't
-	// keep up with more than one concurrently-booting editor: at 2+ workers,
-	// document.modelContext intermittently never finishes initializing within
-	// any reasonable wait, since it's genuine backend overload rather than a
-	// short-lived race. Measured: 0/30 flakes at workers=1 across five runs,
-	// vs. 1/30 (2 workers), 6/30 (4 workers), 6/30 (12 workers) — raising the
-	// per-call wait budget did not help at higher worker counts. Revisit this
-	// if the suite moves to one backend instance per worker.
-	workers: 1,
+	// Every worker shares the one wp-playground-cli backend below, so extra
+	// workers stop paying off quickly: 4 workers halve the serial run time,
+	// while 8 were only ~10% faster than 4.
+	workers: 4,
 	forbidOnly: !! process.env.CI,
 	retries: process.env.CI ? 1 : 0,
 	reporter: 'list',
 	use: {
 		baseURL: 'http://127.0.0.1:9400',
+		storageState: STORAGE_STATE,
 		trace: 'on-first-retry',
 	},
 	projects: [ { name: 'chromium', use: { ...devices[ 'Desktop Chrome' ] } } ],

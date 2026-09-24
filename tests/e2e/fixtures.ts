@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test';
+import { openEditor } from './open-editor';
 
 /**
  * The MCP-shaped result every tool call normalizes to, mirroring how
@@ -18,51 +19,7 @@ type Fixtures = {
 export const test = base.extend< Fixtures >( {
 	// eslint-disable-next-line no-empty-pattern
 	editor: async ( { page }, use ) => {
-		// A fresh auto-draft per test keeps abilities from stepping on each other.
-		await page.goto( '/wp-admin/post-new.php' );
-
-		// A brand-new site shows the welcome guide as a modal on first load.
-		await page.keyboard.press( 'Escape' );
-
-		// The abilities bridge registers tools asynchronously after the editor
-		// mounts, so wait for the WebMCP surface to actually list one before
-		// any test tries to call it.
-		await page.waitForFunction(
-			async () => {
-				const modelContext = ( document as any ).modelContext;
-				if ( ! modelContext?.getTools ) {
-					return false;
-				}
-				const tools = await modelContext.getTools();
-				return tools.some(
-					( tool: { name: string } ) => tool.name === 'editor_get-editor-tree'
-				);
-			},
-			null,
-			{ timeout: 15_000 }
-		);
-
-		// Tools register before the editor finishes booting. Until core/editor
-		// is ready, an insert records no undo step; until the canvas renders,
-		// containers have no block-list settings. Tests must not race either.
-		await page.waitForFunction(
-			() => {
-				const w = window as any;
-				const editorReady = w.wp?.data
-					?.select( 'core/editor' )
-					?.__unstableIsEditorReady?.();
-				const canvas = document.querySelector(
-					'iframe[name="editor-canvas"]'
-				) as HTMLIFrameElement | null;
-				const root = (
-					canvas?.contentDocument ?? document
-				).querySelector( '.is-root-container' );
-				return !! editorReady && !! root;
-			},
-			null,
-			{ timeout: 15_000 }
-		);
-
+		await openEditor( page );
 		await use( page );
 	},
 
