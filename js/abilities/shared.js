@@ -1,0 +1,496 @@
+/**
+ * Helpers shared by every editor-abilities category module.
+ */
+
+import {
+	getAbility,
+	getAbilityCategory,
+	registerAbility,
+	registerAbilityCategory,
+} from '@wordpress/abilities';
+
+export const BLOCK_EDITOR_STORE = 'core/block-editor';
+export const BLOCKS_STORE = 'core/blocks';
+export const CORE_STORE = 'core';
+
+/**
+ * @return {{ select: Function, dispatch: Function }}
+ */
+export function getData() {
+	const { data } = window.wp || {};
+	if ( ! data?.select || ! data?.dispatch ) {
+		throw new Error(
+			'WordPress data store is not available. Open this ability in the block editor.'
+		);
+	}
+	return data;
+}
+
+/**
+ * @return {{ createBlock: Function, getBlockType: Function }}
+ */
+export function getBlocksApi() {
+	const { blocks } = window.wp || {};
+	if ( ! blocks?.createBlock || ! blocks?.getBlockType ) {
+		throw new Error( 'WordPress blocks API is not available.' );
+	}
+	return blocks;
+}
+
+/**
+ * @param {unknown} value
+ * @return {boolean}
+ */
+export function isPlainObject( value ) {
+	return !! value && typeof value === 'object' && ! Array.isArray( value );
+}
+
+/**
+ * @param {unknown} value
+ * @return {string}
+ */
+function describeValue( value ) {
+	if ( value === null ) {
+		return 'null';
+	}
+	if ( Array.isArray( value ) ) {
+		return 'an array';
+	}
+	return `a ${ typeof value }`;
+}
+
+const ATTRIBUTE_TYPE_CHECKS = {
+	string: ( value ) => typeof value === 'string',
+	'rich-text': ( value ) => typeof value === 'string',
+	number: ( value ) => typeof value === 'number',
+	integer: ( value ) => Number.isInteger( value ),
+	boolean: ( value ) => typeof value === 'boolean',
+	array: ( value ) => Array.isArray( value ),
+	object: ( value ) => isPlainObject( value ),
+	null: ( value ) => value === null,
+};
+
+/**
+ * @param {string|string[]} type
+ * @param {unknown}         value
+ * @return {boolean}
+ */
+function matchesAttributeType( type, value ) {
+	const types = Array.isArray( type ) ? type : [ type ];
+	return types.some( ( name ) => {
+		const check = ATTRIBUTE_TYPE_CHECKS[ name ];
+		// An unfamiliar type keyword is not a reason to reject a value.
+		return check ? check( value ) : true;
+	} );
+}
+
+/**
+ * Complete one item of a query-sourced attribute against its sub-schema.
+ *
+ * Defaults declared inside a `query` are only applied while parsing saved
+ * markup, so attributes set programmatically arrive incomplete. A table cell
+ * without its `tag` default renders as an undefined element and breaks the
+ * block, so the defaults are filled in here.
+ *
+ * @param {unknown} item
+ * @param {Object}  query Attribute sub-schema keyed by field.
+ * @param {string}  path  Field path, used in error messages.
+ * @return {Object}
+ */
+function normalizeQueryItem( item, query, path ) {
+	if ( ! isPlainObject( item ) ) {
+		throw new Error(
+			`${ path } must be an object, received ${ describeValue( item ) }.`
+		);
+	}
+
+	const unknown = Object.keys( item ).filter( ( key ) => ! ( key in query ) );
+	if ( unknown.length ) {
+		throw new Error(
+			`${ path } has no field(s): ${ unknown.join(
+				', '
+			) }. Supported fields: ${ Object.keys( query ).join( ', ' ) }.`
+		);
+	}
+
+	const normalized = {};
+	for ( const [ key, schema ] of Object.entries( query ) ) {
+		if ( item[ key ] === undefined ) {
+			if ( schema?.default !== undefined ) {
+				normalized[ key ] = schema.default;
+			}
+			continue;
+		}
+		normalized[ key ] = normalizeAttributeValue(
+			item[ key ],
+			schema,
+			`${ path }.${ key }`
+		);
+	}
+	return normalized;
+}
+
+/**
+ * Validate one attribute value against its schema and complete nested rows.
+ *
+ * @param {unknown} value
+ * @param {Object}  [schema]
+ * @param {string}  path
+ * @return {unknown}
+ */
+function normalizeAttributeValue( value, schema, path ) {
+	if ( schema?.type && ! matchesAttributeType( schema.type, value ) ) {
+		const expected = Array.isArray( schema.type )
+			? schema.type.join( ' or ' )
+			: schema.type;
+		throw new Error(
+			`${ path } must be of type ${ expected }, received ${ describeValue(
+				value
+			) }.`
+		);
+	}
+
+	if ( schema?.query && Array.isArray( value ) ) {
+		return value.map( ( item, index ) =>
+			normalizeQueryItem( item, schema.query, `${ path }[${ index }]` )
+		);
+	}
+
+	return value;
+}
+
+/**
+ * Validate attribute keys and values against what the block type declares.
+ *
+ * @param {string} blockName
+ * @param {Object} attributes
+ * @return {Object}
+ */
+export function normalizeAttributes( blockName, attributes ) {
+	const { getBlockType } = getBlocksApi();
+
+	if ( ! isPlainObject( attributes ) ) {
+		throw new Error( 'attributes must be an object.' );
+	}
+
+	// Unknown keys are stored but never serialized, so fail loudly with the
+	// list the block actually accepts.
+	const supported = getBlockType( blockName )?.attributes;
+	if ( ! supported ) {
+		return { ...attributes };
+	}
+
+	const keys = Object.keys( attributes );
+	const unknown = keys.filter( ( key ) => ! ( key in supported ) );
+	if ( unknown.length ) {
+		throw new Error(
+			`Block "${ blockName }" has no attribute(s): ${ unknown.join(
+				', '
+			) }. Supported attributes: ${ Object.keys( supported ).join(
+				', '
+			) }.`
+		);
+	}
+
+	const normalized = {};
+	for ( const key of keys ) {
+		normalized[ key ] = normalizeAttributeValue(
+			attributes[ key ],
+			supported[ key ],
+			key
+		);
+	}
+	return normalized;
+}
+
+/**
+ * Reject nesting the editor would refuse anyway, before anything is inserted.
+ *
+ * @param {string} parentName
+ * @param {string} childName
+ * @param {string} path
+ */
+function assertNestingAllowed( parentName, childName, path ) {
+	const { getBlockType } = getBlocksApi();
+
+	const allowedParents = getBlockType( childName )?.parent;
+	if (
+		Array.isArray( allowedParents ) &&
+		! allowedParents.includes( parentName )
+	) {
+		throw new Error(
+			`${ path }: "${ childName }" can only be nested inside ${ allowedParents.join(
+				', '
+			) }.`
+		);
+	}
+
+	const allowedChildren = getBlockType( parentName )?.allowedBlocks;
+	if (
+		Array.isArray( allowedChildren ) &&
+		! allowedChildren.includes( childName )
+	) {
+		throw new Error(
+			`${ path }: "${ parentName }" only accepts ${ allowedChildren.join(
+				', '
+			) }.`
+		);
+	}
+}
+
+/**
+ * Build a block and its descendants from a plain { name, attributes,
+ * innerBlocks } spec.
+ *
+ * @param {Object}  spec
+ * @param {string}  [path]       Field path prefix, used in error messages.
+ * @param {?string} [parentName] Block name this spec is nested in.
+ * @return {Object}
+ */
+export function buildBlock( spec, path = '', parentName = null ) {
+	const { createBlock, getBlockType } = getBlocksApi();
+	const field = ( key ) => ( path ? `${ path }.${ key }` : key );
+
+	if ( ! isPlainObject( spec ) ) {
+		throw new Error(
+			`${ path || 'block' } must be an object with a block name.`
+		);
+	}
+	if ( typeof spec.name !== 'string' || ! spec.name ) {
+		throw new Error( `${ field( 'name' ) } must be a block name.` );
+	}
+	if ( ! getBlockType( spec.name ) ) {
+		throw new Error( `Block type is not registered: ${ spec.name }` );
+	}
+	if ( parentName ) {
+		assertNestingAllowed( parentName, spec.name, path );
+	}
+
+	const children = spec.innerBlocks ?? [];
+	if ( ! Array.isArray( children ) ) {
+		throw new Error(
+			`${ field( 'innerBlocks' ) } must be an array of blocks.`
+		);
+	}
+
+	return createBlock(
+		spec.name,
+		normalizeAttributes( spec.name, spec.attributes ?? {} ),
+		children.map( ( child, index ) =>
+			buildBlock(
+				child,
+				`${ field( 'innerBlocks' ) }[${ index }]`,
+				spec.name
+			)
+		)
+	);
+}
+
+/**
+ * Children of a block, including the ones the block does not own.
+ *
+ * A synced pattern (core/block) or template part is an inner block controller:
+ * its children belong to another entity, so getBlock() reports none and only
+ * getBlocks() reaches them. Reading them through getBlock alone leaves the
+ * whole contents of a synced pattern invisible.
+ *
+ * @param {Object} store Block editor store selectors.
+ * @param {Object} block
+ * @return {{ innerBlocks: Object[], controlled: boolean }}
+ */
+export function getInnerBlocks( store, block ) {
+	if ( store?.areInnerBlocksControlled?.( block.clientId ) ) {
+		return {
+			innerBlocks: store.getBlocks( block.clientId ) || [],
+			controlled: true,
+		};
+	}
+	return { innerBlocks: block.innerBlocks || [], controlled: false };
+}
+
+/**
+ * Extend the set of pattern entities on the current path, so a pattern that
+ * references itself (directly or through another pattern) cannot loop forever.
+ *
+ * The set is copied rather than mutated: two instances of the same pattern
+ * side by side are not a cycle, only one nested inside the other is.
+ *
+ * @param {Object}   block
+ * @param {Set<any>} visitedRefs
+ * @return {?Set<any>} Set for the children, or null when this entity repeats.
+ */
+export function withControlledRef( block, visitedRefs ) {
+	const ref = block.attributes?.ref;
+	if ( ref === undefined ) {
+		return visitedRefs;
+	}
+	if ( visitedRefs.has( ref ) ) {
+		return null;
+	}
+	return new Set( visitedRefs ).add( ref );
+}
+
+/**
+ * Serialize a block without its subtree, for flat match lists.
+ *
+ * @param {Object} store Block editor store selectors.
+ * @param {Object} block
+ * @return {Object}
+ */
+export function summarizeBlock( store, block ) {
+	const { innerBlocks, controlled } = getInnerBlocks( store, block );
+	const summary = {
+		clientId: block.clientId,
+		name: block.name,
+		attributes: block.attributes ?? {},
+		innerBlockCount: innerBlocks.length,
+	};
+	if ( controlled ) {
+		summary.controlledInnerBlocks = true;
+	}
+	return summary;
+}
+
+/**
+ * Resolve a client ID to a block, throwing when it is missing or unknown.
+ *
+ * @param {Object} store    Block editor store selectors.
+ * @param {string} clientId
+ * @param {string} [label]  Input field name, used in the error message.
+ * @return {Object}
+ */
+export function requireBlock( store, clientId, label = 'clientId' ) {
+	const block = clientId ? store.getBlock( clientId ) : null;
+	if ( ! block ) {
+		throw new Error( `Block not found for ${ label }: ${ clientId }` );
+	}
+	return block;
+}
+
+/**
+ * A freshly inserted container has no list settings until the editor canvas
+ * renders its InnerBlocks, a React pass that lags the data-store insert by a
+ * render or two. Until then, canInsertBlockType(...) can't see the parent's
+ * allowed-children rules and wrongly rejects every child. Wait for that
+ * render rather than trusting a stale "no settings" read.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ * @param {number}  [timeoutMs]
+ */
+export async function waitForBlockListSettings(
+	store,
+	rootClientId,
+	timeoutMs = 1000
+) {
+	if (
+		! rootClientId ||
+		store.getBlockListSettings( rootClientId ) !== undefined
+	) {
+		return;
+	}
+
+	const { subscribe } = getData();
+	await new Promise( ( resolve ) => {
+		const unsubscribe = subscribe( () => {
+			if ( store.getBlockListSettings( rootClientId ) !== undefined ) {
+				finish();
+			}
+		} );
+		const timer = window.setTimeout( finish, timeoutMs );
+		function finish() {
+			window.clearTimeout( timer );
+			unsubscribe();
+			resolve();
+		}
+	} );
+}
+
+/**
+ * Ensure a block type is allowed at a location, with an actionable reason when
+ * it is not.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {string}  name         Block name to insert.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ */
+export async function assertCanInsert( store, name, rootClientId ) {
+	await waitForBlockListSettings( store, rootClientId );
+
+	if ( store.canInsertBlockType( name, rootClientId || undefined ) ) {
+		return;
+	}
+
+	// A container that is still empty renders a placeholder instead of an
+	// inner block list, and the editor refuses every child until that list
+	// exists. Point at the way out instead of just saying no.
+	const parent = rootClientId ? store.getBlock( rootClientId ) : null;
+	if (
+		parent &&
+		! ( parent.innerBlocks || [] ).length &&
+		store.getBlockListSettings?.( rootClientId ) === undefined
+	) {
+		throw new Error(
+			`Block type "${ name }" cannot be inserted into "${ parent.name }" because that block is empty and is showing its placeholder, so it accepts no children yet. Insert a new "${ parent.name }" with its children in a single call using innerBlocks, then remove the empty one.`
+		);
+	}
+
+	throw new Error(
+		`Block type "${ name }" cannot be inserted at the requested location.`
+	);
+}
+
+/**
+ * Ensure the block editor store is mounted.
+ */
+export function assertEditorReady() {
+	const { select } = getData();
+	if ( ! select( BLOCK_EDITOR_STORE ) ) {
+		throw new Error(
+			'Block editor store is not available. These abilities only work in the block editor.'
+		);
+	}
+}
+
+/**
+ * Look up a registered block type, listing nothing useful if it is missing.
+ *
+ * @param {string} name
+ * @return {Object}
+ */
+export function requireBlockType( name ) {
+	const { getBlockType } = getBlocksApi();
+	if ( typeof name !== 'string' || ! name ) {
+		throw new Error( 'name must be a block name (e.g. core/paragraph).' );
+	}
+	const blockType = getBlockType( name );
+	if ( ! blockType ) {
+		throw new Error(
+			`Block type is not registered: ${ name }. Use editor/get-block-types to list what this site has.`
+		);
+	}
+	return blockType;
+}
+
+/**
+ * Ensure a category exists without throwing if it was already registered.
+ *
+ * @param {string} slug
+ * @param {{ label: string, description: string }} args
+ */
+export function ensureAbilityCategory( slug, args ) {
+	if ( ! getAbilityCategory( slug ) ) {
+		registerAbilityCategory( slug, args );
+	}
+}
+
+/**
+ * Ensure an ability exists without throwing if it was already registered.
+ *
+ * @param {Object} ability
+ */
+export function ensureAbility( ability ) {
+	if ( ! getAbility( ability.name ) ) {
+		registerAbility( ability );
+	}
+}

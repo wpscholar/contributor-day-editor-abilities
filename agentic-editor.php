@@ -56,9 +56,34 @@ function agentic_editor_enqueue_editor_abilities() {
 	wp_enqueue_script( 'agentic-editor-webmcp-polyfill' );
 
 	wp_register_script_module(
+		'@agentic-editor/abilities/shared',
+		AGENTIC_EDITOR_PLUGIN_URL . 'js/abilities/shared.js',
+		array( '@wordpress/abilities' ),
+		agentic_editor_asset_version( 'js/abilities/shared.js' )
+	);
+
+	wp_register_script_module(
+		'@agentic-editor/abilities/block-editor',
+		AGENTIC_EDITOR_PLUGIN_URL . 'js/abilities/block-editor.js',
+		array( '@wordpress/abilities', '@agentic-editor/abilities/shared' ),
+		agentic_editor_asset_version( 'js/abilities/block-editor.js' )
+	);
+
+	wp_register_script_module(
+		'@agentic-editor/abilities/patterns',
+		AGENTIC_EDITOR_PLUGIN_URL . 'js/abilities/patterns.js',
+		array( '@wordpress/abilities', '@agentic-editor/abilities/shared' ),
+		agentic_editor_asset_version( 'js/abilities/patterns.js' )
+	);
+
+	wp_register_script_module(
 		'@agentic-editor/abilities',
 		AGENTIC_EDITOR_PLUGIN_URL . 'js/abilities.js',
-		array( '@wordpress/abilities' ),
+		array(
+			'@wordpress/abilities',
+			'@agentic-editor/abilities/block-editor',
+			'@agentic-editor/abilities/patterns',
+		),
 		agentic_editor_asset_version( 'js/abilities.js' )
 	);
 
