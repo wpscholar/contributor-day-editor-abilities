@@ -8,6 +8,7 @@ import {
 	assertCanInsert,
 	assertEditorReady,
 	buildBlock,
+	describeEditingLock,
 	ensureAbility,
 	ensureAbilityCategory,
 	getBlocksApi,
@@ -595,6 +596,15 @@ export function registerPatternAbilities() {
 				await waitForBlockListSettings( store, input.rootClientId );
 			}
 
+			// canInsertBlockType special-cases the default block type
+			// (core/paragraph) as insertable almost anywhere, including inside
+			// a container the editor itself offers no inserter for, so a lock
+			// on the destination is checked once, up front, rather than left
+			// for canInsertBlockType to catch per pattern.
+			const locationLocked =
+				!! input.rootClientId &&
+				!! describeEditingLock( store, input.rootClientId );
+
 			const matches = all
 				.filter( ( pattern ) => {
 					if ( ! input.includeHidden && ! pattern.inserter ) {
@@ -641,6 +651,9 @@ export function registerPatternAbilities() {
 						}
 					}
 					if ( input.rootClientId ) {
+						if ( locationLocked ) {
+							return false;
+						}
 						const { rootBlockNames } =
 							getPatternStructure( pattern );
 						const fits =
@@ -1153,7 +1166,8 @@ export function registerPatternAbilities() {
 				await assertCanInsert(
 					store,
 					PATTERN_BLOCK_NAME,
-					siblingRange.rootClientId
+					siblingRange.rootClientId,
+					siblingRange.clientIds[ 0 ]
 				);
 
 				const reference = getBlocksApi().createBlock(

@@ -407,15 +407,96 @@ export async function waitForBlockListSettings(
 }
 
 /**
+ * Explain a structural refusal caused by locked editing, distinguishing it
+ * from an ordinary nesting-rule refusal. Retrying an insert, move, or remove
+ * against a locked location can never succeed until a person unlocks it in
+ * the editor, so that has to be said plainly rather than left to another
+ * attempt to discover.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ * @return {?string} A locked-specific reason, or null when this is not a lock.
+ */
+export function describeEditingLock( store, rootClientId ) {
+	if (
+		typeof store.getBlockEditingMode !== 'function' ||
+		store.getBlockEditingMode( rootClientId || undefined ) !== 'disabled'
+	) {
+		return null;
+	}
+
+	// The lock is usually inherited from an inserted pattern instance higher
+	// up the tree; name that pattern so there is something to go unlock.
+	const chain = rootClientId
+		? [ ...store.getBlockParents( rootClientId ), rootClientId ]
+		: [];
+	const patternAncestor = chain
+		.map( ( id ) => store.getBlock( id ) )
+		.find( ( candidate ) => candidate?.attributes?.metadata?.patternName );
+
+	if ( patternAncestor ) {
+		const label =
+			patternAncestor.attributes.metadata.name ??
+			patternAncestor.attributes.metadata.patternName;
+		return `it is inside the "${ label }" pattern, which is locked to protect its layout: only its text and media can be edited here. A person can change its structure from the editor via that block's "Edit pattern" option (which affects every place the pattern is used), or by unlocking it first. Retrying will not succeed until then.`;
+	}
+
+	return 'this location has been locked against structural changes in the editor. A person needs to unlock it there before this can succeed; retrying will not help.';
+}
+
+/**
+ * Select a block so a person watching the editor can see exactly which one a
+ * refused request was about, instead of having to find it from a clientId in
+ * an error message. Best-effort: selecting is a courtesy for the person
+ * watching, and its failure must never mask the error about to be thrown.
+ *
+ * @param {?string} clientId Block to select.
+ */
+export async function trySelectBlock( clientId ) {
+	if ( ! clientId ) {
+		return;
+	}
+	try {
+		await getData().dispatch( BLOCK_EDITOR_STORE ).selectBlock( clientId );
+	} catch {
+		// Selecting is a courtesy, not the point of the call.
+	}
+}
+
+/**
  * Ensure a block type is allowed at a location, with an actionable reason when
  * it is not.
  *
- * @param {Object}  store        Block editor store selectors.
- * @param {string}  name         Block name to insert.
- * @param {?string} rootClientId Destination parent, empty for the root.
+ * @param {Object}  store               Block editor store selectors.
+ * @param {string}  name                Block name to insert.
+ * @param {?string} rootClientId        Destination parent, empty for the root.
+ * @param {?string} [selectOnLockClientId] Block to select on a lock refusal,
+ *                                       when the caller has a more specific
+ *                                       existing subject than the container
+ *                                       itself (e.g. the block being
+ *                                       transformed). Defaults to rootClientId.
  */
-export async function assertCanInsert( store, name, rootClientId ) {
+export async function assertCanInsert(
+	store,
+	name,
+	rootClientId,
+	selectOnLockClientId
+) {
 	await waitForBlockListSettings( store, rootClientId );
+
+	// Checked before canInsertBlockType, not after: that selector special-cases
+	// the default block type (core/paragraph) as insertable almost everywhere,
+	// including inside a container whose editing mode is "disabled" — the
+	// editor's own UI never offers an inserter there for any block type, so
+	// trusting canInsertBlockType alone would let this ability do something a
+	// person could never trigger by hand.
+	const lockReason = describeEditingLock( store, rootClientId );
+	if ( lockReason ) {
+		await trySelectBlock( selectOnLockClientId || rootClientId );
+		throw new Error(
+			`Block type "${ name }" cannot be inserted here: ${ lockReason }`
+		);
+	}
 
 	if ( store.canInsertBlockType( name, rootClientId || undefined ) ) {
 		return;

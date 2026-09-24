@@ -10,6 +10,7 @@ import {
 	assertCanInsert,
 	assertEditorReady,
 	buildBlock,
+	describeEditingLock,
 	ensureAbility,
 	ensureAbilityCategory,
 	getBlocksApi,
@@ -20,6 +21,7 @@ import {
 	requireBlock,
 	requireBlockType,
 	summarizeBlock,
+	trySelectBlock,
 	waitForBlockListSettings,
 	withControlledRef,
 } from './shared.js';
@@ -857,12 +859,23 @@ export function registerBlockEditorAbilities() {
 				);
 			}
 
-			if ( toRootClientId !== fromRootClientId ) {
-				await waitForBlockListSettings( store, toRootClientId );
+			await waitForBlockListSettings( store, toRootClientId );
+
+			// Checked before canInsertBlockType, and even when the parent is not
+			// changing: a locked container refuses to reorder its own children,
+			// not just accept new ones, and canInsertBlockType special-cases the
+			// default block type (core/paragraph) as insertable almost anywhere
+			// — moving one into a locked container would otherwise slip past
+			// this guard and then have moveBlocksToPosition decline it silently.
+			const lockReason = describeEditingLock( store, toRootClientId );
+			if ( lockReason ) {
+				await trySelectBlock( input.clientId );
+				throw new Error(
+					`Block "${ block.name }" cannot be moved: ${ lockReason }`
+				);
 			}
 
 			if (
-				toRootClientId !== fromRootClientId &&
 				! store.canInsertBlockType(
 					block.name,
 					toRootClientId || undefined
@@ -959,6 +972,19 @@ export function registerBlockEditorAbilities() {
 				throw new Error( 'attributes must contain at least one key.' );
 			}
 
+			// `metadata` is editor bookkeeping, not block content: it is where a
+			// locked pattern instance records the pattern it came from, and
+			// because attributes are replaced whole rather than deep-merged, an
+			// update that omits patternName silently erases it, undoing the
+			// content-only lock protecting the pattern's structure elsewhere in
+			// this file. There is no legitimate content edit that needs this key.
+			if ( keys.includes( 'metadata' ) ) {
+				await trySelectBlock( input.clientId );
+				throw new Error(
+					'attributes.metadata cannot be set through this ability: it holds editor bookkeeping (including a locked pattern\'s identity), not block content, and overwriting it can silently remove a pattern\'s lock. Rename a block or change its lock from the editor instead.'
+				);
+			}
+
 			const attributes = normalizeAttributes(
 				block.name,
 				input.attributes
@@ -1024,8 +1050,12 @@ export function registerBlockEditorAbilities() {
 			const index = store.getBlockIndex( input.clientId );
 
 			if ( store.canRemoveBlock?.( input.clientId ) === false ) {
+				await trySelectBlock( input.clientId );
+				const lockReason = describeEditingLock( store, rootClientId );
 				throw new Error(
-					`Block "${ block.name }" cannot be removed. It or its parent may be locked.`
+					lockReason
+						? `Block "${ block.name }" cannot be removed: ${ lockReason }`
+						: `Block "${ block.name }" cannot be removed. It or its parent may be locked.`
 				);
 			}
 
@@ -1161,12 +1191,15 @@ export function registerBlockEditorAbilities() {
 
 			await waitForBlockListSettings( store, rootClientId );
 
-			const canInsert = store.canInsertBlockType(
-				name,
-				rootClientId || undefined
-			);
+			// canInsertBlockType special-cases the default block type
+			// (core/paragraph) as insertable almost anywhere, including inside
+			// a container the editor itself offers no inserter for, so a lock
+			// is checked independently rather than trusted to make it false.
+			const canInsert =
+				! describeEditingLock( store, rootClientId ) &&
+				!! store.canInsertBlockType( name, rootClientId || undefined );
 			return {
-				canInsert: !! canInsert,
+				canInsert,
 				name,
 				rootClientId: rootClientId || null,
 			};
@@ -1272,6 +1305,15 @@ export function registerBlockEditorAbilities() {
 				await waitForBlockListSettings( store, input.rootClientId );
 			}
 
+			// canInsertBlockType special-cases the default block type
+			// (core/paragraph) as insertable almost anywhere, including inside
+			// a container the editor itself offers no inserter for, so a lock
+			// on the destination is checked once, up front, rather than left
+			// for canInsertBlockType to catch per block type.
+			const locationLocked =
+				filterInsertable &&
+				!! describeEditingLock( store, input.rootClientId );
+
 			const matches = all
 				.filter( ( blockType ) => {
 					if (
@@ -1297,6 +1339,9 @@ export function registerBlockEditorAbilities() {
 						if ( ! haystack.includes( needle ) ) {
 							return false;
 						}
+					}
+					if ( filterInsertable && locationLocked ) {
+						return false;
 					}
 					if (
 						filterInsertable &&
@@ -1482,7 +1527,12 @@ export function registerBlockEditorAbilities() {
 			// The result has to be allowed where the original block sits, or
 			// the store drops the replacement without saying why.
 			for ( const created of transformed ) {
-				await assertCanInsert( store, created.name, rootClientId );
+				await assertCanInsert(
+					store,
+					created.name,
+					rootClientId,
+					input.clientId
+				);
 			}
 
 			await actions.replaceBlocks( input.clientId, transformed );
