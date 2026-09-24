@@ -59,6 +59,30 @@ test.describe( 'mutating the document', () => {
 		expect( update.value.updatedAttributes ).toEqual( [ 'content' ] );
 	} );
 
+	test( 'editor/update-block merges nested object attributes', async ( { callTool } ) => {
+		const insert = await callTool( 'editor_insert-block', {
+			name: 'core/paragraph',
+			attributes: {
+				content: 'Styled',
+				style: {
+					typography: { fontSize: '20px' },
+					color: { text: '#000000', background: '#ffffff' },
+				},
+			},
+		} );
+
+		const update = await callTool( 'editor_update-block', {
+			clientId: insert.value.clientId,
+			attributes: { style: { color: { text: '#ff0000', background: null } } },
+		} );
+
+		expect( update.isError ).toBe( false );
+		expect( update.value.attributes.style ).toEqual( {
+			typography: { fontSize: '20px' },
+			color: { text: '#ff0000' },
+		} );
+	} );
+
 	test( 'editor/move-block repositions a block after a sibling', async ( { callTool } ) => {
 		const first = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',

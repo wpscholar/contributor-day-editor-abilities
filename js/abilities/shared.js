@@ -204,6 +204,33 @@ export function normalizeAttributes( blockName, attributes ) {
 }
 
 /**
+ * Merge an attribute update into the block's current value.
+ *
+ * Plain objects merge key by key at every depth, so `{ style: { color } }`
+ * keeps the block's existing typography and spacing; a nested `null` removes
+ * that key. Anything else, arrays included, replaces the current value.
+ *
+ * @param {unknown} current
+ * @param {unknown} update
+ * @return {unknown}
+ */
+export function mergeAttributeValue( current, update ) {
+	if ( ! isPlainObject( current ) || ! isPlainObject( update ) ) {
+		return update;
+	}
+
+	const merged = { ...current };
+	for ( const [ key, value ] of Object.entries( update ) ) {
+		if ( value === null ) {
+			delete merged[ key ];
+			continue;
+		}
+		merged[ key ] = mergeAttributeValue( current[ key ], value );
+	}
+	return merged;
+}
+
+/**
  * Attributes the editor uses to protect blocks rather than to hold content,
  * with why an agent may not set them. Each of these is how a person locks
  * something, so letting an agent write one would let it undo that lock.

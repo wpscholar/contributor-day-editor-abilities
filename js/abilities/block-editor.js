@@ -19,6 +19,7 @@ import {
 	getData,
 	getInnerBlocks,
 	isPlainObject,
+	mergeAttributeValue,
 	normalizeAttributes,
 	requireBlock,
 	requireBlockType,
@@ -924,7 +925,7 @@ export function registerBlockEditorAbilities() {
 		name: 'editor/update-block',
 		label: 'Update Block',
 		description:
-			'Updates attributes on an existing block. Supplied attributes are merged into the current ones, and each value must match the shape the block type declares.',
+			'Updates attributes on an existing block. Supplied attributes are merged into the current ones, and object values such as style merge at every depth, so pass only what changes; a nested null removes that key. Each value must match the shape the block type declares.',
 		category: 'block-editor',
 		input_schema: {
 			type: 'object',
@@ -936,7 +937,7 @@ export function registerBlockEditorAbilities() {
 				attributes: {
 					type: 'object',
 					description:
-						'Attributes to merge into the block. Omitted attributes keep their current values.',
+						'Attributes to merge into the block. Omitted attributes, and omitted keys inside object attributes, keep their current values. Set a nested key to null to remove it.',
 				},
 			},
 			required: [ 'clientId', 'attributes' ],
@@ -1026,7 +1027,14 @@ export function registerBlockEditorAbilities() {
 				input.attributes
 			);
 
-			await actions.updateBlockAttributes( input.clientId, attributes );
+			const merged = Object.fromEntries(
+				Object.entries( attributes ).map( ( [ key, value ] ) => [
+					key,
+					mergeAttributeValue( block.attributes?.[ key ], value ),
+				] )
+			);
+
+			await actions.updateBlockAttributes( input.clientId, merged );
 
 			const updated = requireBlock( store, input.clientId );
 			return {
