@@ -16,6 +16,7 @@ import {
 	callTool,
 	listTools,
 	type WebMcpTool,
+	type WebMcpToolResult,
 } from '@agentic-editor/webmcp-tools';
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai';
 import { approvalReason } from './approval';
@@ -64,6 +65,12 @@ interface TurnResponse {
 type HistoryMode = 'native' | 'text';
 
 type Emit = ( chunk: UIMessageChunk< ChatMetadata > ) => void;
+
+/**
+ * How long one tool call may run before the loop gives up on it. Abilities
+ * cannot be cancelled once started, so this only stops the loop waiting.
+ */
+export const TOOL_TIMEOUT_MS = 30_000;
 
 let idCounter = 0;
 
@@ -129,6 +136,45 @@ function notRunTurn(
 			response: { error: reason },
 		} ) ),
 	};
+}
+
+/**
+ * Run a tool call, but stop waiting on Stop or after TOOL_TIMEOUT_MS.
+ *
+ * WebMCP has no way to cancel a call in progress, so a call abandoned here may
+ * still finish in the background; the loop just no longer waits for it.
+ */
+async function callToolWithLimits(
+	name: string,
+	input: Record< string, unknown >,
+	abortSignal: AbortSignal | undefined
+): Promise< WebMcpToolResult > {
+	let timer: ReturnType< typeof setTimeout > | undefined;
+	let onAbort: ( () => void ) | undefined;
+
+	const timeout = new Promise< WebMcpToolResult >( ( resolve ) => {
+		timer = setTimeout( () => {
+			const text = `${ name } did not finish within ${
+				TOOL_TIMEOUT_MS / 1000
+			} seconds, so its result is unknown. Check the current state before retrying.`;
+			resolve( { isError: true, value: { error: text }, text } );
+		}, TOOL_TIMEOUT_MS );
+	} );
+
+	const aborted = new Promise< never >( ( _resolve, reject ) => {
+		onAbort = () => reject( new DOMException( 'Stopped', 'AbortError' ) );
+		abortSignal?.addEventListener( 'abort', onAbort, { once: true } );
+	} );
+
+	try {
+		abortSignal?.throwIfAborted();
+		return await Promise.race( [ callTool( name, input ), timeout, aborted ] );
+	} finally {
+		clearTimeout( timer );
+		if ( onAbort ) {
+			abortSignal?.removeEventListener( 'abort', onAbort );
+		}
+	}
 }
 
 async function readErrorMessage( response: Response ): Promise< string > {
@@ -448,7 +494,25 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				}
 			}
 
-			const result = await callTool( call.name, input );
+			let result: WebMcpToolResult;
+			try {
+				result = await callToolWithLimits(
+					call.name,
+					input,
+					abortSignal
+				);
+			} catch ( error ) {
+				if ( isAbort( error ) ) {
+					onResponse( index, {
+						id: call.id,
+						name: call.name,
+						response: {
+							error: 'Stopped by the user while this was running, so it may or may not have taken effect.',
+						},
+					} );
+				}
+				throw error;
+			}
 
 			if ( result.isError ) {
 				emit( {

@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readUIMessageStream } from 'ai';
 import { chatConfig } from '@agentic-editor/chat-config';
 import { callTool, listTools } from '@agentic-editor/webmcp-tools';
-import { WordPressAiTransport, type ChatUIMessage } from './transport';
+import {
+	TOOL_TIMEOUT_MS,
+	WordPressAiTransport,
+	type ChatUIMessage,
+} from './transport';
 
 vi.mock( '@agentic-editor/webmcp-tools', () => ( {
 	listTools: vi.fn(),
@@ -227,6 +231,52 @@ describe( 'WordPressAiTransport', () => {
 			{ blocks: [ 'one' ] },
 			{ error: 'Not run: the user stopped the assistant.' },
 		] );
+	} );
+
+	it( 'stops waiting on a tool call that never returns', async () => {
+		vi.useFakeTimers();
+		try {
+			const { requests } = respondWith(
+				callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ),
+				textTurn( 'It timed out.' )
+			);
+			vi.mocked( callTool ).mockReturnValueOnce( new Promise( () => {} ) );
+
+			const pending = send( new WordPressAiTransport(), [ userMessage( 'Hang' ) ] );
+			await vi.advanceTimersByTimeAsync( TOOL_TIMEOUT_MS );
+			const { wire, message } = await pending;
+
+			expect( ( wire[ 1 ] as any ).responses[ 0 ].response.error ).toContain(
+				'did not finish within 30 seconds'
+			);
+			expect( requests() ).toHaveLength( 2 );
+			expect( message.parts ).toContainEqual(
+				expect.objectContaining( { type: 'dynamic-tool', state: 'output-error' } )
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	} );
+
+	it( 'stops waiting on a running tool call when stopped', async () => {
+		const controller = new AbortController();
+		respondWith( callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ) );
+		vi.mocked( callTool ).mockImplementationOnce( () => {
+			queueMicrotask( () => controller.abort() );
+			return new Promise( () => {} );
+		} );
+
+		const { errors, wire } = await send(
+			new WordPressAiTransport(),
+			[ userMessage( 'Stop me' ) ],
+			controller.signal
+		);
+
+		expect( errors ).toEqual( [] );
+		expectEveryCallAnswered( wire );
+		expect( ( wire[ 1 ] as any ).responses[ 0 ].response.error ).toContain(
+			'may or may not have taken effect'
+		);
 	} );
 
 	it( 'reports a failed tool call to the model and the UI', async () => {
