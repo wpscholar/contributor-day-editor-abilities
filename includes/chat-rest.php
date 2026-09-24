@@ -456,12 +456,22 @@ function agentic_editor_chat_build_messages( array $messages, array $function_ma
 						break;
 					}
 
-					$built[] = WordPress\AiClient\Messages\DTO\Message::fromArray(
-						array(
-							'role'  => 'model',
-							'parts' => $message['parts'],
-						)
-					);
+					$parts = array();
+					foreach ( $message['parts'] as $part ) {
+						$built_part = agentic_editor_chat_assistant_part( $part );
+						if ( is_wp_error( $built_part ) ) {
+							return $built_part;
+						}
+						if ( null !== $built_part ) {
+							$parts[] = $built_part;
+						}
+					}
+
+					if ( empty( $parts ) ) {
+						continue 2;
+					}
+
+					$built[] = new WordPress\AiClient\Messages\DTO\ModelMessage( $parts );
 					break;
 
 				case 'tool':
@@ -514,14 +524,11 @@ function agentic_editor_chat_build_messages( array $messages, array $function_ma
 					$built[] = new WordPress\AiClient\Messages\DTO\UserMessage( $parts );
 					break;
 			}
-		} catch ( Exception $e ) {
+		} catch ( Throwable $e ) {
+			// The message can carry server paths, so it is not sent to the client.
 			return new WP_Error(
 				'agentic_editor_invalid_message',
-				sprintf(
-					/* translators: %s: error message from the AI Client. */
-					__( 'The conversation could not be replayed: %s', 'agentic-editor' ),
-					$e->getMessage()
-				),
+				__( 'The conversation could not be replayed: a message is not valid.', 'agentic-editor' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -536,6 +543,84 @@ function agentic_editor_chat_build_messages( array $messages, array $function_ma
 	}
 
 	return $built;
+}
+
+/**
+ * Rebuild one replayed assistant part from its wire format.
+ *
+ * Replayed parts come from the browser, so they are client input, not trusted
+ * AI Client output. They are never handed to MessagePart::fromArray(): a `file`
+ * part there becomes a File, which reads any local path it is given and would
+ * send that file to the provider. Only the two kinds of part a text turn
+ * produces are rebuilt, text and function calls, from checked scalars.
+ *
+ * @param mixed $part Wire-format message part.
+ * @return \WordPress\AiClient\Messages\DTO\MessagePart|WP_Error|null Null to skip the part.
+ */
+function agentic_editor_chat_assistant_part( $part ) {
+	$invalid = new WP_Error(
+		'agentic_editor_invalid_message',
+		__( 'The conversation could not be replayed: an assistant message part is not valid.', 'agentic-editor' ),
+		array( 'status' => 400 )
+	);
+
+	if ( ! is_array( $part ) ) {
+		return null;
+	}
+
+	if ( array_key_exists( 'file', $part ) || array_key_exists( 'functionResponse', $part ) ) {
+		return $invalid;
+	}
+
+	$channel = null;
+	if ( isset( $part['channel'] ) ) {
+		$channel = is_string( $part['channel'] )
+			? WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::tryFrom( $part['channel'] )
+			: null;
+		if ( null === $channel ) {
+			return $invalid;
+		}
+	}
+
+	$signature = null;
+	if ( isset( $part['thoughtSignature'] ) ) {
+		if ( ! is_string( $part['thoughtSignature'] ) ) {
+			return $invalid;
+		}
+		$signature = $part['thoughtSignature'];
+	}
+
+	if ( isset( $part['text'] ) ) {
+		if ( ! is_string( $part['text'] ) ) {
+			return $invalid;
+		}
+		return new WordPress\AiClient\Messages\DTO\MessagePart( $part['text'], $channel, $signature );
+	}
+
+	if ( isset( $part['functionCall'] ) ) {
+		$call = $part['functionCall'];
+		if ( ! is_array( $call ) ) {
+			return $invalid;
+		}
+
+		$id   = isset( $call['id'] ) ? $call['id'] : null;
+		$name = isset( $call['name'] ) ? $call['name'] : null;
+		if ( ( null !== $id && ! is_string( $id ) ) || ( null !== $name && ! is_string( $name ) ) || ( null === $id && null === $name ) ) {
+			return $invalid;
+		}
+
+		// `{}` decodes to an empty array, which would re-encode as `[]`. Google
+		// rejects that and omits null args; the other providers send null as `{}`.
+		$args = isset( $call['args'] ) && array() !== $call['args'] ? $call['args'] : null;
+
+		return new WordPress\AiClient\Messages\DTO\MessagePart(
+			new WordPress\AiClient\Tools\DTO\FunctionCall( $id, $name, $args ),
+			$channel,
+			$signature
+		);
+	}
+
+	return $invalid;
 }
 
 /**
