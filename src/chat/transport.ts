@@ -177,6 +177,19 @@ async function callToolWithLimits(
 	}
 }
 
+/** Whether a response is WordPress rejecting an expired REST nonce. */
+async function isExpiredNonce( response: Response ): Promise< boolean > {
+	if ( response.status !== 403 ) {
+		return false;
+	}
+	try {
+		const body = await response.clone().json();
+		return body?.code === 'rest_cookie_invalid_nonce';
+	} catch {
+		return false;
+	}
+}
+
 async function readErrorMessage( response: Response ): Promise< string > {
 	try {
 		const body = await response.json();
@@ -209,6 +222,9 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 	 * every turn of the same conversation.
 	 */
 	private historyMode: HistoryMode = 'native';
+
+	/** Starts as the page's nonce and is renewed when it expires. */
+	private nonce: string = chatConfig.nonce;
 
 	/** Tool calls waiting on a person, by approval ID. */
 	private readonly pendingApprovals = new Map<
@@ -543,21 +559,28 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		tools: unknown[],
 		abortSignal: AbortSignal | undefined
 	): Promise< TurnResponse > {
-		const response = await fetch( chatConfig.restUrl, {
-			method: 'POST',
-			credentials: 'same-origin',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-WP-Nonce': chatConfig.nonce,
-			},
-			signal: abortSignal,
-			body: JSON.stringify( {
-				messages,
-				tools,
-				context: this.getContext() || {},
-				historyMode: this.historyMode,
-			} ),
+		const body = JSON.stringify( {
+			messages,
+			tools,
+			context: this.getContext() || {},
+			historyMode: this.historyMode,
 		} );
+
+		let response = await this.post( body, abortSignal );
+
+		/*
+		 * A REST nonce lasts a day at most, and an editor tab can stay open
+		 * longer. Renew it once, the way core's own apiFetch middleware does,
+		 * rather than failing every send until the page is reloaded.
+		 */
+		if ( await isExpiredNonce( response ) ) {
+			if ( ! ( await this.renewNonce( abortSignal ) ) ) {
+				throw new Error(
+					'Your login session has expired. Reload the page, logging in again if asked, and resend your message.'
+				);
+			}
+			response = await this.post( body, abortSignal );
+		}
 
 		if ( ! response.ok ) {
 			throw new Error( await readErrorMessage( response ) );
@@ -570,5 +593,48 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		}
 
 		return payload;
+	}
+
+	private post(
+		body: string,
+		abortSignal: AbortSignal | undefined
+	): Promise< Response > {
+		return fetch( chatConfig.restUrl, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-WP-Nonce': this.nonce,
+			},
+			signal: abortSignal,
+			body,
+		} );
+	}
+
+	/** Fetch a fresh REST nonce; false when the login itself has expired. */
+	private async renewNonce(
+		abortSignal: AbortSignal | undefined
+	): Promise< boolean > {
+		if ( ! chatConfig.nonceUrl ) {
+			return false;
+		}
+		try {
+			const response = await fetch( chatConfig.nonceUrl, {
+				credentials: 'same-origin',
+				signal: abortSignal,
+			} );
+			const nonce = ( await response.text() ).trim();
+			// Anything else, such as "0" for a logged-out user, is a failure.
+			if ( ! response.ok || ! /^[a-f0-9]{10}$/.test( nonce ) ) {
+				return false;
+			}
+			this.nonce = nonce;
+			return true;
+		} catch ( error ) {
+			if ( isAbort( error ) ) {
+				throw error;
+			}
+			return false;
+		}
 	}
 }

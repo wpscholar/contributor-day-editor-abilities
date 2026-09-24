@@ -109,6 +109,8 @@ function agentic_editor_chat_module_data( $data ) {
 		array(
 			'restUrl'       => rest_url( AGENTIC_EDITOR_CHAT_NAMESPACE . '/chat' ),
 			'nonce'         => wp_create_nonce( 'wp_rest' ),
+			// Core's endpoint for renewing the nonce in a tab left open past its lifetime.
+			'nonceUrl'      => admin_url( 'admin-ajax.php?action=rest-nonce' ),
 			'available'     => agentic_editor_chat_is_available(),
 			'connectorsUrl' => current_user_can( 'manage_options' )
 				? admin_url( 'options-connectors.php' )

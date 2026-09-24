@@ -10,6 +10,7 @@ declare module '@agentic-editor/chat-config' {
 	export interface ChatConfig {
 		restUrl: string;
 		nonce: string;
+		nonceUrl: string;
 		available: boolean;
 		connectorsUrl: string | null;
 		maxToolRounds: number;

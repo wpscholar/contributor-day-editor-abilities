@@ -458,3 +458,61 @@ describe( 'WordPressAiTransport approvals', () => {
 		} );
 	} );
 } );
+
+describe( 'WordPressAiTransport nonce renewal', () => {
+	const expired = () =>
+		new Response(
+			JSON.stringify( { code: 'rest_cookie_invalid_nonce', message: 'Cookie check failed' } ),
+			{ status: 403 }
+		);
+
+	/** Route chat and nonce requests to separate queues of responses. */
+	function mockFetch( chat: Array< () => Response >, nonce: Array< () => Response > ) {
+		const fetchMock = vi.fn( async ( url: string, _init?: RequestInit ) =>
+			( url === chatConfig.nonceUrl ? nonce : chat ).shift()!()
+		);
+		vi.stubGlobal( 'fetch', fetchMock );
+		return fetchMock;
+	}
+
+	it( 'renews an expired nonce and retries once', async () => {
+		const fetchMock = mockFetch(
+			[ expired, () => new Response( JSON.stringify( textTurn( 'Hi again.' ) ) ) ],
+			[ () => new Response( '0123456789' ) ]
+		);
+
+		const { errors, message } = await send( new WordPressAiTransport(), [
+			userMessage( 'Hi' ),
+		] );
+
+		expect( errors ).toEqual( [] );
+		expect( message.parts ).toContainEqual(
+			expect.objectContaining( { type: 'text', text: 'Hi again.' } )
+		);
+		const chatCalls = fetchMock.mock.calls.filter( ( [ url ] ) => url === chatConfig.restUrl );
+		expect( ( chatCalls[ 0 ][ 1 ]!.headers as Record< string, string > )[ 'X-WP-Nonce' ] ).toBe( 'nonce' );
+		expect( ( chatCalls[ 1 ][ 1 ]!.headers as Record< string, string > )[ 'X-WP-Nonce' ] ).toBe( '0123456789' );
+	} );
+
+	it( 'says the session expired when no nonce can be had', async () => {
+		mockFetch( [ expired ], [ () => new Response( '0', { status: 400 } ) ] );
+
+		const { errors } = await send( new WordPressAiTransport(), [ userMessage( 'Hi' ) ] );
+
+		expect( errors ).toEqual( [
+			'Your login session has expired. Reload the page, logging in again if asked, and resend your message.',
+		] );
+	} );
+
+	it( 'leaves other 403s alone', async () => {
+		const fetchMock = mockFetch(
+			[ () => new Response( JSON.stringify( { code: 'rest_forbidden', message: 'Nope.' } ), { status: 403 } ) ],
+			[]
+		);
+
+		const { errors } = await send( new WordPressAiTransport(), [ userMessage( 'Hi' ) ] );
+
+		expect( errors ).toEqual( [ 'Nope.' ] );
+		expect( fetchMock ).toHaveBeenCalledTimes( 1 );
+	} );
+} );

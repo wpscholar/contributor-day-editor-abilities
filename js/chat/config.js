@@ -10,6 +10,7 @@ const DATA_ELEMENT_ID = 'wp-script-module-data-@agentic-editor/chat-config';
 const defaults = {
 	restUrl: '',
 	nonce: '',
+	nonceUrl: '',
 	available: false,
 	connectorsUrl: null,
 	maxToolRounds: 8,
