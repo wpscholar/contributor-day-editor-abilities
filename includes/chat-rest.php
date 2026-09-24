@@ -538,11 +538,11 @@ function agentic_editor_chat_prepare_parameters( array $schema ) {
  * Make a client-supplied JSON Schema safe to send to a provider.
  *
  * Tool schemas come from whatever the page registered, so they are not
- * necessarily strict enough for the provider that ends up receiving them. Two
- * things are fixed up here:
+ * necessarily strict enough for the provider that ends up receiving them.
+ * Three things are fixed up here:
  *
  * - `{}` in JSON decodes to an empty PHP array and would re-encode as `[]`,
- *   which is invalid for schema keys that must be objects.
+ *   which is invalid wherever a schema belongs, at any depth.
  * - An array type with no `items` is rejected outright by Gemini, which fails
  *   the whole request rather than just that one tool.
  * - Function-calling schemas generally have no union types, so a nullable type
@@ -554,6 +554,18 @@ function agentic_editor_chat_prepare_parameters( array $schema ) {
 function agentic_editor_chat_prepare_schema( $schema ) {
 	if ( ! is_array( $schema ) ) {
 		return $schema;
+	}
+
+	// Every caller passes a schema position, where an empty array can only
+	// have been `{}`.
+	if ( array() === $schema ) {
+		return new stdClass();
+	}
+
+	// `items: {}` says nothing about the items, so it is treated as missing
+	// and gets the fallback below.
+	if ( isset( $schema['items'] ) && array() === $schema['items'] ) {
+		unset( $schema['items'] );
 	}
 
 	if ( isset( $schema['type'] ) && is_array( $schema['type'] ) ) {
