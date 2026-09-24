@@ -12,8 +12,13 @@
  */
 
 import { chatConfig } from '@agentic-editor/chat-config';
-import { callTool, listTools } from '@agentic-editor/webmcp-tools';
+import {
+	callTool,
+	listTools,
+	type WebMcpTool,
+} from '@agentic-editor/webmcp-tools';
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai';
+import { approvalReason } from './approval';
 
 /**
  * What a turn is replayed from.
@@ -75,7 +80,10 @@ function errorMessage( error: unknown ): string {
 }
 
 function isAbort( error: unknown ): boolean {
-	return error instanceof Error && error.name === 'AbortError';
+	return (
+		( error instanceof Error || error instanceof DOMException ) &&
+		error.name === 'AbortError'
+	);
 }
 
 /**
@@ -137,8 +145,8 @@ async function readErrorMessage( response: Response ): Promise< string > {
 
 export interface WordPressAiTransportOptions {
 	/**
-	 * Page context for the system prompt, read at send time so that it
-	 * describes the screen as it is now rather than as it was at mount.
+	 * Page context for the user's latest message, read at send time so that
+	 * it describes the screen as it is now rather than as it was at mount.
 	 */
 	getContext?: () => Record< string, unknown >;
 	/** Whether to offer the page's WebMCP tools to the model. */
@@ -155,6 +163,12 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 	 * every turn of the same conversation.
 	 */
 	private historyMode: HistoryMode = 'native';
+
+	/** Tool calls waiting on a person, by approval ID. */
+	private readonly pendingApprovals = new Map<
+		string,
+		( approved: boolean ) => void
+	>();
 
 	constructor( options: WordPressAiTransportOptions = {} ) {
 		this.getContext = options.getContext ?? ( () => ( {} ) );
@@ -202,6 +216,41 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		return Promise.resolve( stream );
 	}
 
+	/**
+	 * Answer a tool call that is waiting for approval.
+	 *
+	 * The loop waits inside the stream rather than ending it, as the AI SDK's
+	 * own approval flow would, so the round carries on where it paused.
+	 */
+	respondToApproval( approvalId: string, approved: boolean ): void {
+		const resolve = this.pendingApprovals.get( approvalId );
+		if ( resolve ) {
+			this.pendingApprovals.delete( approvalId );
+			resolve( approved );
+		}
+	}
+
+	private waitForApproval(
+		approvalId: string,
+		abortSignal: AbortSignal | undefined
+	): Promise< boolean > {
+		return new Promise( ( resolve, reject ) => {
+			const onAbort = () => {
+				this.pendingApprovals.delete( approvalId );
+				reject( new DOMException( 'Stopped', 'AbortError' ) );
+			};
+			if ( abortSignal?.aborted ) {
+				onAbort();
+				return;
+			}
+			abortSignal?.addEventListener( 'abort', onAbort, { once: true } );
+			this.pendingApprovals.set( approvalId, ( approved ) => {
+				abortSignal?.removeEventListener( 'abort', onAbort );
+				resolve( approved );
+			} );
+		} );
+	}
+
 	reconnectToStream(): Promise< ReadableStream<
 		UIMessageChunk< ChatMetadata >
 	> | null > {
@@ -238,6 +287,7 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 			} );
 
 		const tools = this.useTools ? await listTools() : [];
+		const toolsByName = new Map( tools.map( ( tool ) => [ tool.name, tool ] ) );
 		const declarations = tools.map( ( tool ) => ( {
 			name: tool.name,
 			description: tool.description,
@@ -320,6 +370,7 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 
 			await this.runToolCalls(
 				toolCalls,
+				toolsByName,
 				emit,
 				abortSignal,
 				( index, response ) => {
@@ -344,6 +395,7 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 
 	private async runToolCalls(
 		toolCalls: ToolCall[],
+		toolsByName: Map< string, WebMcpTool >,
 		emit: Emit,
 		abortSignal: AbortSignal | undefined,
 		onResponse: ( index: number, response: ToolResponse ) => void
@@ -366,6 +418,35 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				input,
 				dynamic: true,
 			} );
+
+			const reason = approvalReason( toolsByName.get( call.name ), input );
+			if ( reason ) {
+				const approvalId = nextId( 'approval' );
+				emit( {
+					type: 'tool-approval-request',
+					approvalId,
+					toolCallId,
+					reason,
+				} );
+
+				const approved = await this.waitForApproval(
+					approvalId,
+					abortSignal
+				);
+				emit( { type: 'tool-approval-response', approvalId, approved } );
+
+				if ( ! approved ) {
+					emit( { type: 'tool-output-denied', toolCallId } );
+					onResponse( index, {
+						id: call.id,
+						name: call.name,
+						response: {
+							error: 'Not run: the user declined this action.',
+						},
+					} );
+					continue;
+				}
+			}
 
 			const result = await callTool( call.name, input );
 

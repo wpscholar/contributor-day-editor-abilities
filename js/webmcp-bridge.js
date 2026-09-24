@@ -21,7 +21,7 @@ export function toToolName( abilityName ) {
 
 /**
  * @param {Object} [ability]
- * @return {{ readOnlyHint: boolean }|undefined}
+ * @return {{ readOnlyHint: boolean, untrustedContentHint?: boolean }|undefined}
  */
 function toToolAnnotations( ability ) {
 	const annotations = ability?.meta?.annotations;
@@ -30,9 +30,17 @@ function toToolAnnotations( ability ) {
 	}
 
 	// Only WebMCP-supported annotation keys (unknown keys can break registration).
-	return {
+	const hints = {
 		readOnlyHint: !! annotations.readonly,
 	};
+
+	// Block content and patterns are written by other users, so an agent
+	// should treat what these tools return as data, never as instructions.
+	if ( ability.meta.agenticEditor?.untrustedContent ) {
+		hints.untrustedContentHint = true;
+	}
+
+	return hints;
 }
 
 /**
@@ -260,7 +268,14 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 
 	// Keep the executor around so consumers on this page (the chat panel) can
 	// call the ability without depending on the optional executeTool() API.
-	rememberLocalTool( { ...tool, ...optional } );
+	// The approval reason is for this page's own consumers only; it is not a
+	// WebMCP descriptor key, so it is never passed to registerTool.
+	const approval = ability.meta?.agenticEditor?.approval;
+	rememberLocalTool( {
+		...tool,
+		...optional,
+		...( typeof approval === 'string' ? { approval } : {} ),
+	} );
 
 	return true;
 }

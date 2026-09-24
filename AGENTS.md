@@ -52,6 +52,9 @@ Two goals:
 - Category slug: `block-editor`
 - Registration must be **idempotent** (`getAbility` / `getAbilityCategory` before register). Duplicate registration throws and can abort bootstrap.
 - Define `input_schema` / `output_schema` (JSON Schema) and `meta.annotations` (`readonly`, `destructive`, `idempotent`)
+- Plugin-specific hints live under `meta.agenticEditor`, never in `meta.annotations`:
+  - `untrustedContent: true` for anything returning content people wrote (blocks, patterns, terms). The bridge maps it to WebMCP's `untrustedContentHint`
+  - `approval: '<why>'` for anything editor undo cannot take back. The chat asks the user before each call and shows this text
 - Every `type: 'array'` in an **input** schema needs `items`, at every depth. Gemini rejects a function declaration without it and fails the whole chat request, not just that one tool. Output schemas are never sent to a provider, so they are free to be loose
 - Callbacks may assume they run in the block editor; guard with the `core/block-editor` store and throw clear errors otherwise
 - Use `window.wp.data` and `window.wp.blocks` (classic globals). Only `@wordpress/abilities` is imported as a script module
@@ -83,6 +86,8 @@ Two goals:
 - Replay assistant turns from the `parts` the previous response returned, so function call IDs survive the trip through the browser. That is `historyMode: 'native'` and it is what every turn tries first. Those raw parts ride on the UI message's `metadata.wire`, because anything reconstructed from the rendered message would have lost them
 - Gemini requires the thought signature it issued with a function call to come back with that call, but no php-ai-client provider reads or writes `MessagePart::thoughtSignature`, so it never reaches this plugin. A turn that fails that way is retried once as `historyMode: 'text'` (tool calls and results replayed as a transcript) and the client reports the working mode back, so a conversation discovers it at most once. Revisit if a provider starts carrying signatures
 - Tools come from the page, not from the server: `listTools()` reads whatever WebMCP has. Never hard-code a tool list into the chat
+- `src/chat/approval.ts` decides which calls wait for Approve/Deny: tools other scripts registered, tools whose ability declares `meta.agenticEditor.approval`, and arguments carrying script-capable HTML. Ordinary editor edits run without asking, because undo reverts them. The transport pauses inside the stream until `respondToApproval()`, rather than ending it the way the AI SDK's own approval flow does
+- Page context (`getContext`) is attached to the latest user message as `<page_context>`, never to the system instruction, since it can quote content other people wrote
 - Rewrite tool names for providers (`[^a-zA-Z0-9_-]` → `_`, 64 chars) and map them back before the browser sees them. OpenAI rejects the dots WebMCP allows
 - Client schemas are third-party input, so `agentic_editor_chat_prepare_schema()` makes them safe to send: `{}` decodes to an empty PHP array that would re-encode as `[]`, an array with no `items` fails the request outright, and union types (`['string','null']`) have no place in a function declaration
 - The panel mounts anywhere, so keep `src/components/` free of editor packages — only `src/entries/editor-sidebar.tsx` may read `window.wp`

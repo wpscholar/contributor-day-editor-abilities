@@ -14,6 +14,8 @@ declare module '@agentic-editor/webmcp-tools' {
 		inputSchema?: Record< string, unknown >;
 		annotations?: Record< string, unknown >;
 		source: 'local' | 'webmcp';
+		/** Why each call needs a person's approval; only set on local tools. */
+		approval?: string;
 	}
 
 	export interface WebMcpToolResult {

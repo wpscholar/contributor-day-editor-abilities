@@ -365,6 +365,7 @@ export function registerBlockEditorAbilities() {
 			required: [ 'blocks', 'count' ],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,
@@ -439,6 +440,7 @@ export function registerBlockEditorAbilities() {
 			required: [ 'blocks', 'count' ],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,
@@ -1142,6 +1144,7 @@ export function registerBlockEditorAbilities() {
 			],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,

@@ -114,11 +114,15 @@ import { ChatPanel } from '@/components/chat-panel';
 
 createRoot( document.getElementById( 'my-chat' )! ).render(
 	<ChatPanel
-		getContext={ () => ( { screen: 'my screen', notes: 'Extra system prompt context.' } ) }
+		getContext={ () => ( { screen: 'my screen', notes: 'What the page is showing.' } ) }
 		suggestions={ [ 'What can you do here?' ] }
 	/>
 );
 ```
+
+Tool calls run without asking, since editor undo reverts them, except for three kinds that wait for **Approve** or **Deny** in the chat: calls to tools another script put on the page, calls that cannot be undone (`editor/create-pattern`, which publishes straight away), and calls whose arguments carry HTML that could run script, such as a `core/html` block, a `<script>` tag, an `on…=` handler or a `javascript:` URL.
+
+`getContext` is read on every send. Its `screen` and `notes` are attached to the user's latest message as page context, not to the system instruction, since they can quote content other people wrote.
 
 ### Hooks
 

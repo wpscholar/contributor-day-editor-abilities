@@ -31,6 +31,7 @@ let listeningForToolChange = false;
  * @param {string}   [descriptor.description]
  * @param {Object}   [descriptor.inputSchema]
  * @param {Object}   [descriptor.annotations]
+ * @param {string}   [descriptor.approval]  Why a person must approve each call.
  * @param {Function} descriptor.execute     Executor.
  */
 export function rememberLocalTool( descriptor ) {
@@ -99,16 +100,24 @@ function parseInputSchema( inputSchema ) {
 /**
  * @param {Object} tool
  * @param {string} source
- * @return {{ name: string, description: string, inputSchema: Object|undefined, annotations: Object|undefined, source: string }}
+ * @return {{ name: string, description: string, inputSchema: Object|undefined, annotations: Object|undefined, source: string, approval?: string }}
  */
 function normalizeTool( tool, source ) {
-	return {
+	const normalized = {
 		name: tool.name,
 		description: tool.description || tool.title || tool.name,
 		inputSchema: parseInputSchema( tool.inputSchema ),
 		annotations: tool.annotations,
 		source,
 	};
+
+	// Only this page's own tools may say why they need approval; a tool from
+	// another script is never taken at its word.
+	if ( source === 'local' && typeof tool.approval === 'string' ) {
+		normalized.approval = tool.approval;
+	}
+
+	return normalized;
 }
 
 /**

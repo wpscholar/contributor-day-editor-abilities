@@ -71,7 +71,7 @@ function useToolNames(): string[] {
 }
 
 export interface ChatPanelProps {
-	/** Page context for the system prompt, read at send time. */
+	/** Page context sent with the user's latest message, read at send time. */
 	getContext?: () => Record< string, unknown >;
 	/** Starter prompts shown on the empty state. */
 	suggestions?: string[];
@@ -107,6 +107,12 @@ export function ChatPanel( {
 
 	const busy = status === 'submitted' || status === 'streaming';
 
+	const respondToApproval = React.useCallback(
+		( approvalId: string, approved: boolean ) =>
+			transport.respondToApproval( approvalId, approved ),
+		[ transport ]
+	);
+
 	const submit = React.useCallback( () => {
 		const text = input.trim();
 		if ( ! text || busy ) {
@@ -140,7 +146,11 @@ export function ChatPanel( {
 				) }
 
 				{ messages.map( ( message ) => (
-					<ChatMessage key={ message.id } message={ message } />
+					<ChatMessage
+						key={ message.id }
+						message={ message }
+						onApprovalResponse={ busy ? respondToApproval : undefined }
+					/>
 				) ) }
 
 				{ status === 'submitted' && (
@@ -235,7 +245,13 @@ export function ChatPanel( {
 	);
 }
 
-function ChatMessage( { message }: { message: ChatUIMessage } ) {
+function ChatMessage( {
+	message,
+	onApprovalResponse,
+}: {
+	message: ChatUIMessage;
+	onApprovalResponse?: ( approvalId: string, approved: boolean ) => void;
+} ) {
 	const isUser = message.role === 'user';
 	const attribution = [ message.metadata?.model, message.metadata?.provider ]
 		.filter( Boolean )
@@ -267,7 +283,13 @@ function ChatMessage( { message }: { message: ChatUIMessage } ) {
 					}
 
 					if ( part.type === 'dynamic-tool' ) {
-						return <ToolCall key={ key } part={ part } />;
+						return (
+							<ToolCall
+								key={ key }
+								part={ part }
+								onApprovalResponse={ onApprovalResponse }
+							/>
+						);
 					}
 
 					return null;

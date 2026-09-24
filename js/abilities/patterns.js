@@ -603,6 +603,7 @@ export function registerPatternAbilities() {
 			required: [ 'patterns', 'count', 'totalCount' ],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,
@@ -766,6 +767,7 @@ export function registerPatternAbilities() {
 			required: [ 'name', 'title', 'blocks', 'blockCount' ],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,
@@ -833,6 +835,7 @@ export function registerPatternAbilities() {
 			required: [ 'categories', 'count' ],
 		},
 		meta: {
+			agenticEditor: { untrustedContent: true },
 			annotations: {
 				readonly: true,
 				destructive: false,
@@ -1093,6 +1096,11 @@ export function registerPatternAbilities() {
 			required: [ 'id', 'name', 'title', 'syncStatus', 'blockCount' ],
 		},
 		meta: {
+			// Undo cannot take this back, so the chat asks before running it.
+			agenticEditor: {
+				approval:
+					'Publishes a pattern on this site straight away, separately from this post. Undo in the editor will not remove it.',
+			},
 			annotations: {
 				readonly: false,
 				destructive: true,

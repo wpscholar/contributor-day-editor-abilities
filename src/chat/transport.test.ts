@@ -292,3 +292,119 @@ describe( 'WordPressAiTransport', () => {
 		] );
 	} );
 } );
+
+describe( 'WordPressAiTransport approvals', () => {
+	beforeEach( () => {
+		vi.mocked( listTools ).mockResolvedValue( [
+			{
+				name: 'editor_create-pattern',
+				description: 'Create',
+				source: 'local',
+				approval: 'Publishes a pattern.',
+			},
+		] );
+	} );
+
+	/** Answer the first approval request the stream raises. */
+	function answerApproval( transport: WordPressAiTransport, approved: boolean ) {
+		const original = transport.sendMessages.bind( transport );
+		vi.spyOn( transport, 'sendMessages' ).mockImplementation( async ( options ) => {
+			const stream = await original( options );
+			return stream.pipeThrough(
+				new TransformStream( {
+					transform( chunk, controller ) {
+						controller.enqueue( chunk );
+						if ( chunk.type === 'tool-approval-request' ) {
+							queueMicrotask( () =>
+								transport.respondToApproval( chunk.approvalId, approved )
+							);
+						}
+					},
+				} )
+			);
+		} );
+	}
+
+	it( 'runs a call once it is approved', async () => {
+		respondWith(
+			callTurn( { id: 'call_1', name: 'editor_create-pattern', args: { title: 'Hero' } } ),
+			textTurn( 'Saved.' )
+		);
+		const transport = new WordPressAiTransport();
+		answerApproval( transport, true );
+
+		const { message, wire } = await send( transport, [ userMessage( 'Save it' ) ] );
+
+		expect( callTool ).toHaveBeenCalledWith( 'editor_create-pattern', { title: 'Hero' } );
+		expect( message.parts ).toContainEqual(
+			expect.objectContaining( {
+				type: 'dynamic-tool',
+				state: 'output-available',
+				approval: expect.objectContaining( {
+					approved: true,
+					requestReason: 'Publishes a pattern.',
+				} ),
+			} )
+		);
+		expectEveryCallAnswered( wire );
+	} );
+
+	it( 'tells the model when a call is denied', async () => {
+		const { requests } = respondWith(
+			callTurn( { id: 'call_1', name: 'editor_create-pattern' } ),
+			textTurn( 'Okay, I will not.' )
+		);
+		const transport = new WordPressAiTransport();
+		answerApproval( transport, false );
+
+		const { message, wire } = await send( transport, [ userMessage( 'Save it' ) ] );
+
+		expect( callTool ).not.toHaveBeenCalled();
+		expect( message.parts ).toContainEqual(
+			expect.objectContaining( { type: 'dynamic-tool', state: 'output-denied' } )
+		);
+		expect( requests()[ 1 ].messages.at( -1 ) ).toEqual( {
+			role: 'tool',
+			responses: [
+				{
+					id: 'call_1',
+					name: 'editor_create-pattern',
+					response: { error: 'Not run: the user declined this action.' },
+				},
+			],
+		} );
+		expectEveryCallAnswered( wire );
+	} );
+
+	it( 'stops cleanly while a call waits for approval', async () => {
+		respondWith( callTurn( { id: 'call_1', name: 'editor_create-pattern' } ) );
+		const controller = new AbortController();
+		const transport = new WordPressAiTransport();
+		const original = transport.sendMessages.bind( transport );
+		vi.spyOn( transport, 'sendMessages' ).mockImplementation( async ( options ) =>
+			( await original( options ) ).pipeThrough(
+				new TransformStream( {
+					transform( chunk, stream ) {
+						stream.enqueue( chunk );
+						if ( chunk.type === 'tool-approval-request' ) {
+							queueMicrotask( () => controller.abort() );
+						}
+					},
+				} )
+			)
+		);
+
+		const { errors, wire } = await send(
+			transport,
+			[ userMessage( 'Save it' ) ],
+			controller.signal
+		);
+
+		expect( errors ).toEqual( [] );
+		expect( callTool ).not.toHaveBeenCalled();
+		expectEveryCallAnswered( wire );
+		expect( ( wire[ 1 ] as any ).responses[ 0 ].response ).toEqual( {
+			error: 'Not run: the user stopped the assistant.',
+		} );
+	} );
+} );
