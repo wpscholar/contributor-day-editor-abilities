@@ -36,6 +36,7 @@ Two goals:
 | `vite.config.ts` | Build: React aliased to WordPress globals, two entries, one stylesheet |
 | `src/lib/shims/*` | Re-export `window.React` / `ReactDOM` / `ReactJSXRuntime` as ES modules |
 | `src/chat/transport.ts` | The AI SDK `ChatTransport`: one REST turn per round plus the tool loop |
+| `src/chat/transport.test.ts` | Vitest coverage of the tool loop; `vitest.config.ts` stubs the import-map externals |
 | `src/components/chat-panel.tsx` | The panel: `useChat`, transcript, composer |
 | `src/components/ui/*` | shadcn components — regenerate with the CLI, don't hand-edit |
 | `src/entries/*.tsx` | The two mounts (editor sidebar, standalone screen) |
@@ -78,6 +79,7 @@ Two goals:
 
 - The AI Client is **PHP-only** in 7.0. Core recommends a purpose-built REST endpoint per feature rather than a generic prompt endpoint, which is what `includes/chat-rest.php` is
 - The endpoint runs **one** model turn. The browser owns conversation state and the tool-call loop, which keeps the endpoint stateless and lets the chat run on any screen. That loop lives in `WordPressAiTransport`, which presents it to `useChat` as a single streaming assistant message with a step boundary per round
+- Every function call in `metadata.wire` must be followed by a tool turn answering it, or providers reject the replay. A round cut short (Stop, the round limit) answers its unrun calls with a "Not run" error. Emit `wire` as a fresh snapshot each time; the AI SDK stores the array it is given, so mutating one after emitting it changes the stored message
 - Replay assistant turns from the `parts` the previous response returned, so function call IDs survive the trip through the browser. That is `historyMode: 'native'` and it is what every turn tries first. Those raw parts ride on the UI message's `metadata.wire`, because anything reconstructed from the rendered message would have lost them
 - Gemini requires the thought signature it issued with a function call to come back with that call, but no php-ai-client provider reads or writes `MessagePart::thoughtSignature`, so it never reaches this plugin. A turn that fails that way is retried once as `historyMode: 'text'` (tool calls and results replayed as a transcript) and the client reports the working mode back, so a conversation discovers it at most once. Revisit if a provider starts carrying signatures
 - Tools come from the page, not from the server: `listTools()` reads whatever WebMCP has. Never hard-code a tool list into the chat
@@ -115,6 +117,7 @@ npm install          # Required first; the chat panel is compiled
 npm run build        # Build the chat panel into build/ (gitignored)
 npm run dev          # Same, rebuilding on change
 npm run typecheck    # tsc --noEmit
+npm test             # Vitest unit tests (src/**/*.test.ts), no WordPress needed
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules

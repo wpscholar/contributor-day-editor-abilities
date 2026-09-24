@@ -102,6 +102,27 @@ function toWireMessages( message: ChatUIMessage ): WireMessage[] {
 	return [];
 }
 
+/**
+ * A tool turn answering every call with the same error.
+ *
+ * Providers reject a function call that has no response, so a round that is
+ * cut short still has to answer each call, and saying why lets the model take
+ * it into account on the next message.
+ */
+function notRunTurn(
+	toolCalls: ToolCall[],
+	reason: string
+): { role: 'tool'; responses: ToolResponse[] } {
+	return {
+		role: 'tool',
+		responses: toolCalls.map( ( call ) => ( {
+			id: call.id,
+			name: call.name,
+			response: { error: reason },
+		} ) ),
+	};
+}
+
 async function readErrorMessage( response: Response ): Promise< string > {
 	try {
 		const body = await response.json();
@@ -197,7 +218,24 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 
 		// Only the turns produced now belong to the message being built.
 		const produced: WireMessage[] = [];
-		const metadata: ChatMetadata = { wire: produced };
+		const metadata: ChatMetadata = {};
+
+		/*
+		 * The AI SDK keeps whatever array a metadata chunk carries, so every
+		 * chunk gets a fresh snapshot rather than a live array that later
+		 * rounds would change underneath the stored message. `pending` is a
+		 * round still in progress, included so that the stored history always
+		 * pairs every function call with a response, wherever Stop lands.
+		 */
+		const snapshot = ( pending: WireMessage[] = [] ): ChatMetadata => ( {
+			...metadata,
+			wire: [ ...produced, ...pending ],
+		} );
+		const publish = ( pending?: WireMessage[] ) =>
+			emit( {
+				type: 'message-metadata',
+				messageMetadata: snapshot( pending ),
+			} );
 
 		const tools = this.useTools ? await listTools() : [];
 		const declarations = tools.map( ( tool ) => ( {
@@ -223,8 +261,6 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 
 			const parts = payload.message?.parts ?? [];
 			const assistantTurn: WireMessage = { role: 'assistant', parts };
-			wire.push( assistantTurn );
-			produced.push( assistantTurn );
 
 			if ( payload.meta?.model ) {
 				metadata.model = payload.meta.model;
@@ -252,13 +288,21 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 			const toolCalls = payload.toolCalls ?? [];
 
 			if ( ! toolCalls.length ) {
+				produced.push( assistantTurn );
 				emit( { type: 'finish-step' } );
-				emit( { type: 'message-metadata', messageMetadata: metadata } );
-				emit( { type: 'finish', messageMetadata: metadata } );
+				emit( { type: 'finish', messageMetadata: snapshot() } );
 				return;
 			}
 
 			if ( round === maxRounds ) {
+				produced.push(
+					assistantTurn,
+					notRunTurn(
+						toolCalls,
+						`Not run: the assistant reached its limit of ${ maxRounds } rounds of tool calls.`
+					)
+				);
+				publish();
 				emit( { type: 'finish-step' } );
 				emit( {
 					type: 'error',
@@ -267,29 +311,44 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				return;
 			}
 
-			const responses = await this.runToolCalls(
+			// Filled in as each call completes; anything left was never run.
+			let toolTurn = notRunTurn(
+				toolCalls,
+				'Not run: the user stopped the assistant.'
+			);
+			publish( [ assistantTurn, toolTurn ] );
+
+			await this.runToolCalls(
 				toolCalls,
 				emit,
-				abortSignal
+				abortSignal,
+				( index, response ) => {
+					// A new turn each time: the last one is already emitted.
+					toolTurn = {
+						role: 'tool',
+						responses: toolTurn.responses.map(
+							( existing, position ) =>
+								position === index ? response : existing
+						),
+					};
+					publish( [ assistantTurn, toolTurn ] );
+				}
 			);
 
-			const toolTurn: WireMessage = { role: 'tool', responses };
-			wire.push( toolTurn );
-			produced.push( toolTurn );
+			wire.push( assistantTurn, toolTurn );
+			produced.push( assistantTurn, toolTurn );
 
 			emit( { type: 'finish-step' } );
-			emit( { type: 'message-metadata', messageMetadata: metadata } );
 		}
 	}
 
 	private async runToolCalls(
 		toolCalls: ToolCall[],
 		emit: Emit,
-		abortSignal: AbortSignal | undefined
-	): Promise< ToolResponse[] > {
-		const responses: ToolResponse[] = [];
-
-		for ( const call of toolCalls ) {
+		abortSignal: AbortSignal | undefined,
+		onResponse: ( index: number, response: ToolResponse ) => void
+	): Promise< void > {
+		for ( const [ index, call ] of toolCalls.entries() ) {
 			abortSignal?.throwIfAborted();
 
 			const toolCallId = call.id ?? nextId( 'call' );
@@ -326,14 +385,12 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				} );
 			}
 
-			responses.push( {
+			onResponse( index, {
 				id: call.id,
 				name: call.name,
 				response: result.value,
 			} );
 		}
-
-		return responses;
 	}
 
 	private async requestTurn(

@@ -186,6 +186,7 @@ The chat panel is compiled, so `npm run build` is required before it will appear
 | `npm run build` | Build the chat panel into `build/` |
 | `npm run dev` | Rebuild the chat panel on change |
 | `npm run typecheck` | Type-check without emitting |
+| `npm test` | Run the Vitest unit tests |
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |
 | `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |
