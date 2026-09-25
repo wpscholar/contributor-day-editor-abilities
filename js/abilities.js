@@ -2,7 +2,7 @@
  * Client-side block editor abilities.
  *
  * These run in the browser against the live block editor stores and are
- * discoverable via @wordpress/abilities (and WebMCP via the bridge).
+ * discoverable via `@wordpress/abilities` (and WebMCP via the bridge).
  *
  * Each ability category lives in its own module under ./abilities/, with
  * shared helpers factored into ./abilities/shared.js.
@@ -17,8 +17,5 @@ import { registerPatternAbilities } from '@agentic-editor/abilities/patterns';
  * @return {string[]} Registered ability names.
  */
 export function registerEditorAbilities() {
-	return [
-		...registerBlockEditorAbilities(),
-		...registerPatternAbilities(),
-	];
+	return [ ...registerBlockEditorAbilities(), ...registerPatternAbilities() ];
 }

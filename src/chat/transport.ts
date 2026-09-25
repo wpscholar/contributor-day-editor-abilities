@@ -168,7 +168,11 @@ async function callToolWithLimits(
 
 	try {
 		abortSignal?.throwIfAborted();
-		return await Promise.race( [ callTool( name, input ), timeout, aborted ] );
+		return await Promise.race( [
+			callTool( name, input ),
+			timeout,
+			aborted,
+		] );
 	} finally {
 		clearTimeout( timer );
 		if ( onAbort ) {
@@ -349,7 +353,9 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 			} );
 
 		const tools = this.useTools ? await listTools() : [];
-		const toolsByName = new Map( tools.map( ( tool ) => [ tool.name, tool ] ) );
+		const toolsByName = new Map(
+			tools.map( ( tool ) => [ tool.name, tool ] )
+		);
 		const declarations = tools.map( ( tool ) => ( {
 			name: tool.name,
 			description: tool.description,
@@ -481,7 +487,10 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				dynamic: true,
 			} );
 
-			const reason = approvalReason( toolsByName.get( call.name ), input );
+			const reason = approvalReason(
+				toolsByName.get( call.name ),
+				input
+			);
 			if ( reason ) {
 				const approvalId = nextId( 'approval' );
 				emit( {
@@ -495,7 +504,11 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 					approvalId,
 					abortSignal
 				);
-				emit( { type: 'tool-approval-response', approvalId, approved } );
+				emit( {
+					type: 'tool-approval-response',
+					approvalId,
+					approved,
+				} );
 
 				if ( ! approved ) {
 					emit( { type: 'tool-output-denied', toolCallId } );

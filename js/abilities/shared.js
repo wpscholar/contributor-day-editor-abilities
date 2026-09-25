@@ -14,7 +14,7 @@ export const BLOCKS_STORE = 'core/blocks';
 export const CORE_STORE = 'core';
 
 /**
- * @return {{ select: Function, dispatch: Function }}
+ * @return {Object} `wp.data`, checked to have `select` and `dispatch`.
  */
 export function getData() {
 	const { data } = window.wp || {};
@@ -27,7 +27,7 @@ export function getData() {
 }
 
 /**
- * @return {{ createBlock: Function, getBlockType: Function }}
+ * @return {Object} `wp.blocks`, checked to have `createBlock` and `getBlockType`.
  */
 export function getBlocksApi() {
 	const { blocks } = window.wp || {};
@@ -39,7 +39,7 @@ export function getBlocksApi() {
 
 /**
  * @param {unknown} value
- * @return {boolean}
+ * @return {value is Record<string, unknown>} Whether value is a non-array object.
  */
 export function isPlainObject( value ) {
 	return !! value && typeof value === 'object' && ! Array.isArray( value );
@@ -133,9 +133,9 @@ function normalizeQueryItem( item, query, path ) {
 /**
  * Validate one attribute value against its schema and complete nested rows.
  *
- * @param {unknown} value
- * @param {Object}  [schema]
- * @param {string}  path
+ * @param {unknown}          value
+ * @param {Object|undefined} schema
+ * @param {string}           path
  * @return {unknown}
  */
 function normalizeAttributeValue( value, schema, path ) {
@@ -247,7 +247,7 @@ const RESERVED_ATTRIBUTES = {
  * Refuse attributes that would change a block's locks instead of its content.
  *
  * @param {Object} attributes
- * @param {string} [path] Field path, used in the error message.
+ * @param {string} [path]     Field path, used in the error message.
  */
 export function assertNoReservedAttributes( attributes, path = 'attributes' ) {
 	const reserved = Object.keys( attributes ).filter( ( key ) =>
@@ -345,11 +345,12 @@ export function buildBlock( spec, path = '', parentName = null ) {
 	if ( typeof spec.name !== 'string' || ! spec.name ) {
 		throw new Error( `${ field( 'name' ) } must be a block name.` );
 	}
-	if ( ! getBlockType( spec.name ) ) {
-		throw new Error( `Block type is not registered: ${ spec.name }` );
+	const name = spec.name;
+	if ( ! getBlockType( name ) ) {
+		throw new Error( `Block type is not registered: ${ name }` );
 	}
 	if ( parentName ) {
-		assertNestingAllowed( parentName, spec.name, path );
+		assertNestingAllowed( parentName, name, path );
 	}
 
 	if ( isPlainObject( spec.attributes ) ) {
@@ -364,14 +365,10 @@ export function buildBlock( spec, path = '', parentName = null ) {
 	}
 
 	return createBlock(
-		spec.name,
-		normalizeAttributes( spec.name, spec.attributes ?? {} ),
+		name,
+		normalizeAttributes( name, spec.attributes ?? {} ),
 		children.map( ( child, index ) =>
-			buildBlock(
-				child,
-				`${ field( 'innerBlocks' ) }[${ index }]`,
-				spec.name
-			)
+			buildBlock( child, `${ field( 'innerBlocks' ) }[${ index }]`, name )
 		)
 	);
 }
@@ -405,9 +402,9 @@ export function getInnerBlocks( store, block ) {
  * The set is copied rather than mutated: two instances of the same pattern
  * side by side are not a cycle, only one nested inside the other is.
  *
- * @param {Object}   block
- * @param {Set<any>} visitedRefs
- * @return {?Set<any>} Set for the children, or null when this entity repeats.
+ * @param {Object}       block
+ * @param {Set<unknown>} visitedRefs
+ * @return {?Set<unknown>} Set for the children, or null when this entity repeats.
  */
 export function withControlledRef( block, visitedRefs ) {
 	const ref = block.attributes?.ref;
@@ -491,7 +488,7 @@ export async function waitForBlockListSettings(
 		function finish() {
 			window.clearTimeout( timer );
 			unsubscribe();
-			resolve();
+			resolve( undefined );
 		}
 	} );
 }
@@ -557,14 +554,14 @@ export async function trySelectBlock( clientId ) {
  * Ensure a block type is allowed at a location, with an actionable reason when
  * it is not.
  *
- * @param {Object}  store               Block editor store selectors.
- * @param {string}  name                Block name to insert.
- * @param {?string} rootClientId        Destination parent, empty for the root.
+ * @param {Object}  store                  Block editor store selectors.
+ * @param {string}  name                   Block name to insert.
+ * @param {?string} rootClientId           Destination parent, empty for the root.
  * @param {?string} [selectOnLockClientId] Block to select on a lock refusal,
- *                                       when the caller has a more specific
- *                                       existing subject than the container
- *                                       itself (e.g. the block being
- *                                       transformed). Defaults to rootClientId.
+ *                                         when the caller has a more specific
+ *                                         existing subject than the container
+ *                                         itself (e.g. the block being
+ *                                         transformed). Defaults to rootClientId.
  */
 export async function assertCanInsert(
 	store,
@@ -646,7 +643,7 @@ export function requireBlockType( name ) {
 /**
  * Ensure a category exists without throwing if it was already registered.
  *
- * @param {string} slug
+ * @param {string}                                 slug
  * @param {{ label: string, description: string }} args
  */
 export function ensureAbilityCategory( slug, args ) {

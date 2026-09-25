@@ -30,13 +30,15 @@ async function setEditingMode( page: Page, clientId: string, mode: string ) {
 async function getBlock( page: Page, clientId: string ) {
 	return page.evaluate(
 		( clientId ) =>
-			( window as any ).wp.data.select( 'core/block-editor' ).getBlock( clientId ),
+			( window as any ).wp.data
+				.select( 'core/block-editor' )
+				.getBlock( clientId ),
 		clientId
 	);
 }
 
 test.describe( 'locks', () => {
-	test( 'editor/update-block refuses to change a block\'s locks', async ( {
+	test( "editor/update-block refuses to change a block's locks", async ( {
 		editor,
 		callTool,
 	} ) => {
@@ -49,9 +51,14 @@ test.describe( 'locks', () => {
 			{ templateLock: false },
 			{ metadata: { name: 'Renamed' } },
 		] ) {
-			const result = await callTool( 'editor_update-block', { clientId, attributes } );
+			const result = await callTool( 'editor_update-block', {
+				clientId,
+				attributes,
+			} );
 			expect( result.isError, JSON.stringify( attributes ) ).toBe( true );
-			expect( result.text ).toContain( 'cannot be set through this ability' );
+			expect( result.text ).toContain(
+				'cannot be set through this ability'
+			);
 		}
 
 		const block = await getBlock( editor, clientId );
@@ -59,7 +66,9 @@ test.describe( 'locks', () => {
 		expect( block.attributes.metadata ).toBeUndefined();
 	} );
 
-	test( 'editor/insert-block refuses locks at any depth', async ( { callTool } ) => {
+	test( 'editor/insert-block refuses locks at any depth', async ( {
+		callTool,
+	} ) => {
 		const result = await callTool( 'editor_insert-block', {
 			name: 'core/group',
 			innerBlocks: [
@@ -88,7 +97,9 @@ test.describe( 'locks', () => {
 
 		expect( result.isError ).toBe( true );
 		expect( result.text ).toContain( 'cannot be updated' );
-		expect( ( await getBlock( editor, clientId ) ).attributes.content ).toBe( 'Original' );
+		expect(
+			( await getBlock( editor, clientId ) ).attributes.content
+		).toBe( 'Original' );
 	} );
 
 	test( 'editor/update-block edits only content in a contentOnly block', async ( {
@@ -104,7 +115,9 @@ test.describe( 'locks', () => {
 		} );
 		expect( structural.isError ).toBe( true );
 		expect( structural.text ).toContain( 'rules out dropCap' );
-		expect( structural.text ).toContain( 'Its content attributes are: content' );
+		expect( structural.text ).toContain(
+			'Its content attributes are: content'
+		);
 
 		const content = await callTool( 'editor_update-block', {
 			clientId,
@@ -121,7 +134,9 @@ test.describe( 'locks', () => {
 		editor,
 		callTool,
 	} ) => {
-		const clientId = await insertParagraph( editor, { lock: { remove: true } } );
+		const clientId = await insertParagraph( editor, {
+			lock: { remove: true },
+		} );
 
 		const result = await callTool( 'editor_transform-block', {
 			clientId,
@@ -130,14 +145,18 @@ test.describe( 'locks', () => {
 
 		expect( result.isError ).toBe( true );
 		expect( result.text ).toContain( 'locked against removal' );
-		expect( ( await getBlock( editor, clientId ) ).name ).toBe( 'core/paragraph' );
+		expect( ( await getBlock( editor, clientId ) ).name ).toBe(
+			'core/paragraph'
+		);
 	} );
 
 	test( 'editor/create-pattern checks a remove lock before publishing anything', async ( {
 		editor,
 		callTool,
 	} ) => {
-		const clientId = await insertParagraph( editor, { lock: { remove: true } } );
+		const clientId = await insertParagraph( editor, {
+			lock: { remove: true },
+		} );
 		const title = `Locked source ${ Date.now() }`;
 
 		const result = await callTool( 'editor_create-pattern', {

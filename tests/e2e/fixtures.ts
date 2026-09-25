@@ -13,11 +13,13 @@ export type ToolResult = {
 
 type Fixtures = {
 	editor: Page;
-	callTool: ( name: string, args?: Record< string, unknown > ) => Promise< ToolResult >;
+	callTool: (
+		name: string,
+		args?: Record< string, unknown >
+	) => Promise< ToolResult >;
 };
 
 export const test = base.extend< Fixtures >( {
-	// eslint-disable-next-line no-empty-pattern
 	editor: async ( { page }, use ) => {
 		await openEditor( page );
 		await use( page );
@@ -33,7 +35,8 @@ export const test = base.extend< Fixtures >( {
 					const modelContext = ( document as any ).modelContext;
 					const tools = await modelContext.getTools();
 					const tool = tools.find(
-						( candidate: { name: string } ) => candidate.name === name
+						( candidate: { name: string } ) =>
+							candidate.name === name
 					);
 					if ( ! tool ) {
 						throw new Error( `Tool not registered: ${ name }` );
@@ -43,10 +46,13 @@ export const test = base.extend< Fixtures >( {
 						tool,
 						JSON.stringify( args ?? {} )
 					);
-					const parsed = typeof raw === 'string' ? JSON.parse( raw ) : raw;
+					const parsed =
+						typeof raw === 'string' ? JSON.parse( raw ) : raw;
 
 					const text = ( parsed?.content || [] )
-						.filter( ( block: { type: string } ) => block.type === 'text' )
+						.filter(
+							( block: { type: string } ) => block.type === 'text'
+						)
 						.map( ( block: { text: string } ) => block.text )
 						.join( '\n' );
 

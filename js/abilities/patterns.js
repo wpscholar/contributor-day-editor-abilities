@@ -31,7 +31,7 @@ const USER_PATTERN_PREFIX = 'core/block/';
  * Patterns arrive over REST, so they have to be awaited rather than read: a
  * plain select returns nothing until the resolver has finished.
  *
- * @return {Function}
+ * @return {(storeName: string) => Object} `wp.data.resolveSelect`.
  */
 function getResolveSelect() {
 	const { resolveSelect } = getData();
@@ -44,7 +44,7 @@ function getResolveSelect() {
 }
 
 /**
- * @return {{ parse: Function, serialize: Function }}
+ * @return {{ parse: (html: string, options?: Object) => Object[], serialize: (blocks: Object[]) => string }}
  */
 function getBlockMarkupApi() {
 	const blocks = getBlocksApi();
@@ -198,7 +198,7 @@ function normalizeRegisteredPattern( pattern ) {
 }
 
 /**
- * @param {Object}            record            A wp_block post.
+ * @param {Object}             record            A wp_block post.
  * @param {Map<number,string>} categorySlugsById
  * @return {Object}
  */
@@ -464,7 +464,9 @@ function requireSiblingRange( store, clientIds ) {
 	const rootClientId = store.getBlockRootClientId( clientIds[ 0 ] ) || '';
 
 	const positions = clientIds.map( ( clientId ) => {
-		if ( ( store.getBlockRootClientId( clientId ) || '' ) !== rootClientId ) {
+		if (
+			( store.getBlockRootClientId( clientId ) || '' ) !== rootClientId
+		) {
 			throw new Error(
 				'Every clientId must have the same parent to be replaced by one block.'
 			);
@@ -476,8 +478,7 @@ function requireSiblingRange( store, clientIds ) {
 
 	const contiguous = positions.every(
 		( position, offset ) =>
-			offset === 0 ||
-			position.index === positions[ offset - 1 ].index + 1
+			offset === 0 || position.index === positions[ offset - 1 ].index + 1
 	);
 	if ( ! contiguous ) {
 		throw new Error(
@@ -498,7 +499,7 @@ function requireSiblingRange( store, clientIds ) {
  * replaceBlocks checks only that the replacement may be inserted, not that the
  * originals may be removed, so a remove lock has to be checked here.
  *
- * @param {Object}                                      store        Block editor store selectors.
+ * @param {Object}                                        store        Block editor store selectors.
  * @param {{ rootClientId: string, clientIds: string[] }} siblingRange
  */
 async function assertCanReplace( store, siblingRange ) {
@@ -619,7 +620,9 @@ export function registerPatternAbilities() {
 				requireBlock( store, input.rootClientId, 'rootClientId' );
 			}
 			if ( input.blockTypes && ! Array.isArray( input.blockTypes ) ) {
-				throw new Error( 'blockTypes must be an array of block names.' );
+				throw new Error(
+					'blockTypes must be an array of block names.'
+				);
 			}
 
 			const all = await loadPatterns();
@@ -975,7 +978,11 @@ export function registerPatternAbilities() {
 			}
 
 			for ( const block of blocks ) {
-				await assertCanInsert( store, block.name, effectiveRootClientId );
+				await assertCanInsert(
+					store,
+					block.name,
+					effectiveRootClientId
+				);
 			}
 
 			await actions.insertBlocks(

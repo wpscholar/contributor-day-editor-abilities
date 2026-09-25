@@ -38,7 +38,11 @@ function callTurn( ...calls: Call[] ) {
 			parts: calls.map( ( call ) => ( {
 				channel: 'content',
 				type: 'function_call',
-				functionCall: { id: call.id, name: call.name, args: call.args ?? {} },
+				functionCall: {
+					id: call.id,
+					name: call.name,
+					args: call.args ?? {},
+				},
 			} ) ),
 		},
 		text: '',
@@ -71,7 +75,9 @@ function respondWith( ...bodies: Array< object | ( () => Response ) > ) {
 
 	return {
 		requests: () =>
-			fetchMock.mock.calls.map( ( [ , init ] ) => JSON.parse( String( init.body ) ) ),
+			fetchMock.mock.calls.map( ( [ , init ] ) =>
+				JSON.parse( String( init.body ) )
+			),
 	};
 }
 
@@ -94,7 +100,8 @@ async function send(
 	for await ( const snapshot of readUIMessageStream< ChatUIMessage >( {
 		stream,
 		terminateOnError: false,
-		onError: ( error ) => errors.push( ( error as Error ).message ?? String( error ) ),
+		onError: ( error ) =>
+			errors.push( ( error as Error ).message ?? String( error ) ),
 	} ) ) {
 		message = snapshot;
 	}
@@ -118,15 +125,23 @@ function expectEveryCallAnswered( wire: unknown[] ) {
 			return;
 		}
 		const next: any = wire[ index + 1 ];
-		expect( next?.role, `turn ${ index } has unanswered calls` ).toBe( 'tool' );
-		expect( next.responses.map( ( response: any ) => response.id ) ).toEqual( ids );
+		expect( next?.role, `turn ${ index } has unanswered calls` ).toBe(
+			'tool'
+		);
+		expect(
+			next.responses.map( ( response: any ) => response.id )
+		).toEqual( ids );
 	} );
 }
 
 beforeEach( () => {
 	chatConfig.maxToolRounds = 8;
 	vi.mocked( listTools ).mockResolvedValue( [
-		{ name: 'editor_get-editor-tree', description: 'Tree', source: 'local' },
+		{
+			name: 'editor_get-editor-tree',
+			description: 'Tree',
+			source: 'local',
+		},
 	] );
 	vi.mocked( callTool ).mockResolvedValue( {
 		isError: false,
@@ -144,19 +159,25 @@ describe( 'WordPressAiTransport', () => {
 	it( 'finishes on a text-only answer', async () => {
 		const { requests } = respondWith( textTurn( 'Hello there.' ) );
 
-		const { message, errors, wire } = await send( new WordPressAiTransport(), [
-			userMessage( 'Hi' ),
-		] );
+		const { message, errors, wire } = await send(
+			new WordPressAiTransport(),
+			[ userMessage( 'Hi' ) ]
+		);
 
 		expect( errors ).toEqual( [] );
 		expect( message.parts ).toContainEqual(
 			expect.objectContaining( { type: 'text', text: 'Hello there.' } )
 		);
 		expect( wire ).toEqual( [
-			{ role: 'assistant', parts: textTurn( 'Hello there.' ).message.parts },
+			{
+				role: 'assistant',
+				parts: textTurn( 'Hello there.' ).message.parts,
+			},
 		] );
 		expect( message.metadata?.model ).toBe( 'Test Model' );
-		expect( requests()[ 0 ].messages ).toEqual( [ { role: 'user', content: 'Hi' } ] );
+		expect( requests()[ 0 ].messages ).toEqual( [
+			{ role: 'user', content: 'Hi' },
+		] );
 		expect( requests()[ 0 ].tools ).toEqual( [
 			{ name: 'editor_get-editor-tree', description: 'Tree' },
 		] );
@@ -164,24 +185,46 @@ describe( 'WordPressAiTransport', () => {
 
 	it( 'runs a tool round, sends the result back, then finishes', async () => {
 		const { requests } = respondWith(
-			callTurn( { id: 'call_1', name: 'editor_get-editor-tree', args: { depth: 1 } } ),
+			callTurn( {
+				id: 'call_1',
+				name: 'editor_get-editor-tree',
+				args: { depth: 1 },
+			} ),
 			textTurn( 'The post is empty.' )
 		);
 
-		const { errors, wire, message } = await send( new WordPressAiTransport(), [
-			userMessage( 'What is in the post?' ),
-		] );
+		const { errors, wire, message } = await send(
+			new WordPressAiTransport(),
+			[ userMessage( 'What is in the post?' ) ]
+		);
 
 		expect( errors ).toEqual( [] );
-		expect( callTool ).toHaveBeenCalledWith( 'editor_get-editor-tree', { depth: 1 } );
-		expect( wire.map( ( turn ) => turn.role ) ).toEqual( [ 'assistant', 'tool', 'assistant' ] );
+		expect( callTool ).toHaveBeenCalledWith( 'editor_get-editor-tree', {
+			depth: 1,
+		} );
+		expect( wire.map( ( turn ) => turn.role ) ).toEqual( [
+			'assistant',
+			'tool',
+			'assistant',
+		] );
 		expect( wire[ 1 ] ).toEqual( {
 			role: 'tool',
-			responses: [ { id: 'call_1', name: 'editor_get-editor-tree', response: { blocks: [] } } ],
+			responses: [
+				{
+					id: 'call_1',
+					name: 'editor_get-editor-tree',
+					response: { blocks: [] },
+				},
+			],
 		} );
-		expect( requests()[ 1 ].messages.slice( 1 ) ).toEqual( wire.slice( 0, 2 ) );
+		expect( requests()[ 1 ].messages.slice( 1 ) ).toEqual(
+			wire.slice( 0, 2 )
+		);
 		expect( message.parts ).toContainEqual(
-			expect.objectContaining( { type: 'dynamic-tool', state: 'output-available' } )
+			expect.objectContaining( {
+				type: 'dynamic-tool',
+				state: 'output-available',
+			} )
 		);
 		expectEveryCallAnswered( wire );
 	} );
@@ -194,11 +237,15 @@ describe( 'WordPressAiTransport', () => {
 			callTurn( { id: 'call_3', name: 'editor_get-editor-tree' } )
 		);
 
-		const { errors, wire } = await send( new WordPressAiTransport(), [ userMessage( 'Loop' ) ] );
+		const { errors, wire } = await send( new WordPressAiTransport(), [
+			userMessage( 'Loop' ),
+		] );
 
 		expect( requests() ).toHaveLength( 3 );
 		expect( callTool ).toHaveBeenCalledTimes( 2 );
-		expect( errors ).toEqual( [ 'The assistant stopped after 2 rounds of tool calls.' ] );
+		expect( errors ).toEqual( [
+			'The assistant stopped after 2 rounds of tool calls.',
+		] );
 		expectEveryCallAnswered( wire );
 		expect( ( wire.at( -1 ) as any ).responses[ 0 ].response ).toEqual( {
 			error: 'Not run: the assistant reached its limit of 2 rounds of tool calls.',
@@ -227,7 +274,11 @@ describe( 'WordPressAiTransport', () => {
 		expect( errors ).toEqual( [] );
 		expect( callTool ).toHaveBeenCalledTimes( 1 );
 		expectEveryCallAnswered( wire );
-		expect( ( wire[ 1 ] as any ).responses.map( ( response: any ) => response.response ) ).toEqual( [
+		expect(
+			( wire[ 1 ] as any ).responses.map(
+				( response: any ) => response.response
+			)
+		).toEqual( [
 			{ blocks: [ 'one' ] },
 			{ error: 'Not run: the user stopped the assistant.' },
 		] );
@@ -240,18 +291,25 @@ describe( 'WordPressAiTransport', () => {
 				callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ),
 				textTurn( 'It timed out.' )
 			);
-			vi.mocked( callTool ).mockReturnValueOnce( new Promise( () => {} ) );
+			vi.mocked( callTool ).mockReturnValueOnce(
+				new Promise( () => {} )
+			);
 
-			const pending = send( new WordPressAiTransport(), [ userMessage( 'Hang' ) ] );
+			const pending = send( new WordPressAiTransport(), [
+				userMessage( 'Hang' ),
+			] );
 			await vi.advanceTimersByTimeAsync( TOOL_TIMEOUT_MS );
 			const { wire, message } = await pending;
 
-			expect( ( wire[ 1 ] as any ).responses[ 0 ].response.error ).toContain(
-				'did not finish within 30 seconds'
-			);
+			expect(
+				( wire[ 1 ] as any ).responses[ 0 ].response.error
+			).toContain( 'did not finish within 30 seconds' );
 			expect( requests() ).toHaveLength( 2 );
 			expect( message.parts ).toContainEqual(
-				expect.objectContaining( { type: 'dynamic-tool', state: 'output-error' } )
+				expect.objectContaining( {
+					type: 'dynamic-tool',
+					state: 'output-error',
+				} )
 			);
 		} finally {
 			vi.useRealTimers();
@@ -260,7 +318,9 @@ describe( 'WordPressAiTransport', () => {
 
 	it( 'stops waiting on a running tool call when stopped', async () => {
 		const controller = new AbortController();
-		respondWith( callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ) );
+		respondWith(
+			callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } )
+		);
 		vi.mocked( callTool ).mockImplementationOnce( () => {
 			queueMicrotask( () => controller.abort() );
 			return new Promise( () => {} );
@@ -290,33 +350,56 @@ describe( 'WordPressAiTransport', () => {
 			text: 'No editor',
 		} );
 
-		const { wire, message } = await send( new WordPressAiTransport(), [ userMessage( 'Try' ) ] );
+		const { wire, message } = await send( new WordPressAiTransport(), [
+			userMessage( 'Try' ),
+		] );
 
-		expect( ( wire[ 1 ] as any ).responses[ 0 ].response ).toEqual( { error: 'No editor' } );
+		expect( ( wire[ 1 ] as any ).responses[ 0 ].response ).toEqual( {
+			error: 'No editor',
+		} );
 		expect( message.parts ).toContainEqual(
-			expect.objectContaining( { type: 'dynamic-tool', state: 'output-error', errorText: 'No editor' } )
+			expect.objectContaining( {
+				type: 'dynamic-tool',
+				state: 'output-error',
+				errorText: 'No editor',
+			} )
 		);
 	} );
 
 	it( 'surfaces the endpoint error message and stores only whole rounds', async () => {
 		respondWith(
 			callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ),
-			() => new Response( JSON.stringify( { message: 'Rate limited.' } ), { status: 429 } )
+			() =>
+				new Response( JSON.stringify( { message: 'Rate limited.' } ), {
+					status: 429,
+				} )
 		);
 
-		const { errors, wire } = await send( new WordPressAiTransport(), [ userMessage( 'Hi' ) ] );
+		const { errors, wire } = await send( new WordPressAiTransport(), [
+			userMessage( 'Hi' ),
+		] );
 
 		expect( errors ).toEqual( [ 'Rate limited.' ] );
-		expect( wire.map( ( turn ) => turn.role ) ).toEqual( [ 'assistant', 'tool' ] );
+		expect( wire.map( ( turn ) => turn.role ) ).toEqual( [
+			'assistant',
+			'tool',
+		] );
 		expectEveryCallAnswered( wire );
 	} );
 
 	it( 'reports the history mode that worked on the next request', async () => {
-		const { requests } = respondWith( textTurn( 'One', 'text' ), textTurn( 'Two' ) );
+		const { requests } = respondWith(
+			textTurn( 'One', 'text' ),
+			textTurn( 'Two' )
+		);
 		const transport = new WordPressAiTransport();
 
 		const first = await send( transport, [ userMessage( 'A' ) ] );
-		await send( transport, [ userMessage( 'A' ), first.message, userMessage( 'B' ) ] );
+		await send( transport, [
+			userMessage( 'A' ),
+			first.message,
+			userMessage( 'B' ),
+		] );
 
 		expect( requests()[ 0 ].historyMode ).toBe( 'native' );
 		expect( requests()[ 1 ].historyMode ).toBe( 'text' );
@@ -332,7 +415,11 @@ describe( 'WordPressAiTransport', () => {
 
 		const first = await send( transport, [ userMessage( 'A' ) ] );
 		const stored = structuredClone( first.wire );
-		await send( transport, [ userMessage( 'A' ), first.message, userMessage( 'B' ) ] );
+		await send( transport, [
+			userMessage( 'A' ),
+			first.message,
+			userMessage( 'B' ),
+		] );
 
 		expect( first.wire ).toEqual( stored );
 		expect( requests()[ 2 ].messages ).toEqual( [
@@ -356,36 +443,52 @@ describe( 'WordPressAiTransport approvals', () => {
 	} );
 
 	/** Answer the first approval request the stream raises. */
-	function answerApproval( transport: WordPressAiTransport, approved: boolean ) {
+	function answerApproval(
+		transport: WordPressAiTransport,
+		approved: boolean
+	) {
 		const original = transport.sendMessages.bind( transport );
-		vi.spyOn( transport, 'sendMessages' ).mockImplementation( async ( options ) => {
-			const stream = await original( options );
-			return stream.pipeThrough(
-				new TransformStream( {
-					transform( chunk, controller ) {
-						controller.enqueue( chunk );
-						if ( chunk.type === 'tool-approval-request' ) {
-							queueMicrotask( () =>
-								transport.respondToApproval( chunk.approvalId, approved )
-							);
-						}
-					},
-				} )
-			);
-		} );
+		vi.spyOn( transport, 'sendMessages' ).mockImplementation(
+			async ( options ) => {
+				const stream = await original( options );
+				return stream.pipeThrough(
+					new TransformStream( {
+						transform( chunk, controller ) {
+							controller.enqueue( chunk );
+							if ( chunk.type === 'tool-approval-request' ) {
+								queueMicrotask( () =>
+									transport.respondToApproval(
+										chunk.approvalId,
+										approved
+									)
+								);
+							}
+						},
+					} )
+				);
+			}
+		);
 	}
 
 	it( 'runs a call once it is approved', async () => {
 		respondWith(
-			callTurn( { id: 'call_1', name: 'editor_create-pattern', args: { title: 'Hero' } } ),
+			callTurn( {
+				id: 'call_1',
+				name: 'editor_create-pattern',
+				args: { title: 'Hero' },
+			} ),
 			textTurn( 'Saved.' )
 		);
 		const transport = new WordPressAiTransport();
 		answerApproval( transport, true );
 
-		const { message, wire } = await send( transport, [ userMessage( 'Save it' ) ] );
+		const { message, wire } = await send( transport, [
+			userMessage( 'Save it' ),
+		] );
 
-		expect( callTool ).toHaveBeenCalledWith( 'editor_create-pattern', { title: 'Hero' } );
+		expect( callTool ).toHaveBeenCalledWith( 'editor_create-pattern', {
+			title: 'Hero',
+		} );
 		expect( message.parts ).toContainEqual(
 			expect.objectContaining( {
 				type: 'dynamic-tool',
@@ -407,11 +510,16 @@ describe( 'WordPressAiTransport approvals', () => {
 		const transport = new WordPressAiTransport();
 		answerApproval( transport, false );
 
-		const { message, wire } = await send( transport, [ userMessage( 'Save it' ) ] );
+		const { message, wire } = await send( transport, [
+			userMessage( 'Save it' ),
+		] );
 
 		expect( callTool ).not.toHaveBeenCalled();
 		expect( message.parts ).toContainEqual(
-			expect.objectContaining( { type: 'dynamic-tool', state: 'output-denied' } )
+			expect.objectContaining( {
+				type: 'dynamic-tool',
+				state: 'output-denied',
+			} )
 		);
 		expect( requests()[ 1 ].messages.at( -1 ) ).toEqual( {
 			role: 'tool',
@@ -419,7 +527,9 @@ describe( 'WordPressAiTransport approvals', () => {
 				{
 					id: 'call_1',
 					name: 'editor_create-pattern',
-					response: { error: 'Not run: the user declined this action.' },
+					response: {
+						error: 'Not run: the user declined this action.',
+					},
 				},
 			],
 		} );
@@ -427,21 +537,24 @@ describe( 'WordPressAiTransport approvals', () => {
 	} );
 
 	it( 'stops cleanly while a call waits for approval', async () => {
-		respondWith( callTurn( { id: 'call_1', name: 'editor_create-pattern' } ) );
+		respondWith(
+			callTurn( { id: 'call_1', name: 'editor_create-pattern' } )
+		);
 		const controller = new AbortController();
 		const transport = new WordPressAiTransport();
 		const original = transport.sendMessages.bind( transport );
-		vi.spyOn( transport, 'sendMessages' ).mockImplementation( async ( options ) =>
-			( await original( options ) ).pipeThrough(
-				new TransformStream( {
-					transform( chunk, stream ) {
-						stream.enqueue( chunk );
-						if ( chunk.type === 'tool-approval-request' ) {
-							queueMicrotask( () => controller.abort() );
-						}
-					},
-				} )
-			)
+		vi.spyOn( transport, 'sendMessages' ).mockImplementation(
+			async ( options ) =>
+				( await original( options ) ).pipeThrough(
+					new TransformStream( {
+						transform( chunk, stream ) {
+							stream.enqueue( chunk );
+							if ( chunk.type === 'tool-approval-request' ) {
+								queueMicrotask( () => controller.abort() );
+							}
+						},
+					} )
+				)
 		);
 
 		const { errors, wire } = await send(
@@ -462,12 +575,18 @@ describe( 'WordPressAiTransport approvals', () => {
 describe( 'WordPressAiTransport nonce renewal', () => {
 	const expired = () =>
 		new Response(
-			JSON.stringify( { code: 'rest_cookie_invalid_nonce', message: 'Cookie check failed' } ),
+			JSON.stringify( {
+				code: 'rest_cookie_invalid_nonce',
+				message: 'Cookie check failed',
+			} ),
 			{ status: 403 }
 		);
 
 	/** Route chat and nonce requests to separate queues of responses. */
-	function mockFetch( chat: Array< () => Response >, nonce: Array< () => Response > ) {
+	function mockFetch(
+		chat: Array< () => Response >,
+		nonce: Array< () => Response >
+	) {
 		const fetchMock = vi.fn( async ( url: string, _init?: RequestInit ) =>
 			( url === chatConfig.nonceUrl ? nonce : chat ).shift()!()
 		);
@@ -477,7 +596,10 @@ describe( 'WordPressAiTransport nonce renewal', () => {
 
 	it( 'renews an expired nonce and retries once', async () => {
 		const fetchMock = mockFetch(
-			[ expired, () => new Response( JSON.stringify( textTurn( 'Hi again.' ) ) ) ],
+			[
+				expired,
+				() => new Response( JSON.stringify( textTurn( 'Hi again.' ) ) ),
+			],
 			[ () => new Response( '0123456789' ) ]
 		);
 
@@ -489,15 +611,30 @@ describe( 'WordPressAiTransport nonce renewal', () => {
 		expect( message.parts ).toContainEqual(
 			expect.objectContaining( { type: 'text', text: 'Hi again.' } )
 		);
-		const chatCalls = fetchMock.mock.calls.filter( ( [ url ] ) => url === chatConfig.restUrl );
-		expect( ( chatCalls[ 0 ][ 1 ]!.headers as Record< string, string > )[ 'X-WP-Nonce' ] ).toBe( 'nonce' );
-		expect( ( chatCalls[ 1 ][ 1 ]!.headers as Record< string, string > )[ 'X-WP-Nonce' ] ).toBe( '0123456789' );
+		const chatCalls = fetchMock.mock.calls.filter(
+			( [ url ] ) => url === chatConfig.restUrl
+		);
+		expect(
+			( chatCalls[ 0 ][ 1 ]!.headers as Record< string, string > )[
+				'X-WP-Nonce'
+			]
+		).toBe( 'nonce' );
+		expect(
+			( chatCalls[ 1 ][ 1 ]!.headers as Record< string, string > )[
+				'X-WP-Nonce'
+			]
+		).toBe( '0123456789' );
 	} );
 
 	it( 'says the session expired when no nonce can be had', async () => {
-		mockFetch( [ expired ], [ () => new Response( '0', { status: 400 } ) ] );
+		mockFetch(
+			[ expired ],
+			[ () => new Response( '0', { status: 400 } ) ]
+		);
 
-		const { errors } = await send( new WordPressAiTransport(), [ userMessage( 'Hi' ) ] );
+		const { errors } = await send( new WordPressAiTransport(), [
+			userMessage( 'Hi' ),
+		] );
 
 		expect( errors ).toEqual( [
 			'Your login session has expired. Reload the page, logging in again if asked, and resend your message.',
@@ -506,11 +643,22 @@ describe( 'WordPressAiTransport nonce renewal', () => {
 
 	it( 'leaves other 403s alone', async () => {
 		const fetchMock = mockFetch(
-			[ () => new Response( JSON.stringify( { code: 'rest_forbidden', message: 'Nope.' } ), { status: 403 } ) ],
+			[
+				() =>
+					new Response(
+						JSON.stringify( {
+							code: 'rest_forbidden',
+							message: 'Nope.',
+						} ),
+						{ status: 403 }
+					),
+			],
 			[]
 		);
 
-		const { errors } = await send( new WordPressAiTransport(), [ userMessage( 'Hi' ) ] );
+		const { errors } = await send( new WordPressAiTransport(), [
+			userMessage( 'Hi' ),
+		] );
 
 		expect( errors ).toEqual( [ 'Nope.' ] );
 		expect( fetchMock ).toHaveBeenCalledTimes( 1 );

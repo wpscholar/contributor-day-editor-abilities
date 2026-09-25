@@ -8,7 +8,12 @@
 
 import * as React from 'react';
 import { useChat } from '@ai-sdk/react';
-import { MessageSquareIcon, SendIcon, SquareIcon, Trash2Icon } from 'lucide-react';
+import {
+	MessageSquareIcon,
+	SendIcon,
+	SquareIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import { chatConfig } from '@agentic-editor/chat-config';
 import { listTools, onToolsChanged } from '@agentic-editor/webmcp-tools';
 
@@ -98,8 +103,15 @@ export function ChatPanel( {
 		[]
 	);
 
-	const { messages, sendMessage, status, stop, setMessages, error, clearError } =
-		useChat< ChatUIMessage >( { transport } );
+	const {
+		messages,
+		sendMessage,
+		status,
+		stop,
+		setMessages,
+		error,
+		clearError,
+	} = useChat< ChatUIMessage >( { transport } );
 
 	const [ input, setInput ] = React.useState( '' );
 	const inputRef = React.useRef< HTMLTextAreaElement >( null );
@@ -149,7 +161,9 @@ export function ChatPanel( {
 					<ChatMessage
 						key={ message.id }
 						message={ message }
-						onApprovalResponse={ busy ? respondToApproval : undefined }
+						onApprovalResponse={
+							busy ? respondToApproval : undefined
+						}
 					/>
 				) ) }
 
@@ -317,15 +331,19 @@ function ToolCount( {
 	 */
 	const [ copied, setCopied ] = React.useState( false );
 
-	const label = copied
-		? 'Copied!'
-		: names.length
-		? `${ names.length } page ${ names.length === 1 ? 'tool' : 'tools' }`
-		: 'No page tools';
+	let label = 'No page tools';
+	if ( copied ) {
+		label = 'Copied!';
+	} else if ( names.length ) {
+		label = `${ names.length } page ${
+			names.length === 1 ? 'tool' : 'tools'
+		}`;
+	}
 
 	return (
-		<span
-			className="mr-auto cursor-pointer text-xs text-muted-foreground"
+		<button
+			type="button"
+			className="mr-auto cursor-pointer border-0 bg-transparent p-0 text-xs text-muted-foreground [font:inherit]"
 			title={
 				names.length
 					? names.join( '\n' )
@@ -342,7 +360,7 @@ function ToolCount( {
 			} }
 		>
 			{ label }
-		</span>
+		</button>
 	);
 }
 

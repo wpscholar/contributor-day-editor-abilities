@@ -38,12 +38,12 @@ const fromCreateElement: JsxFactory = ( type, props, key ) => {
 				type as never,
 				attributes,
 				...( children as React.ReactNode[] )
-		  )
+			)
 		: React.createElement(
 				type as never,
 				attributes,
 				children as React.ReactNode
-		  );
+			);
 };
 
 const runtime: JsxRuntimeGlobal = window.ReactJSXRuntime ?? {

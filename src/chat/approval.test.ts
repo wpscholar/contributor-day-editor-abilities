@@ -14,7 +14,9 @@ describe( 'approvalReason', () => {
 		expect(
 			approvalReason( local(), {
 				name: 'core/paragraph',
-				attributes: { content: 'One = two, <strong>only</strong> online.' },
+				attributes: {
+					content: 'One = two, <strong>only</strong> online.',
+				},
 			} )
 		).toBeNull();
 	} );
@@ -25,13 +27,22 @@ describe( 'approvalReason', () => {
 
 	it( 'asks before running a tool another script registered', () => {
 		expect(
-			approvalReason( local( { source: 'webmcp', annotations: { readOnlyHint: true } } ), {} )
+			approvalReason(
+				local( {
+					source: 'webmcp',
+					annotations: { readOnlyHint: true },
+				} ),
+				{}
+			)
 		).toContain( 'another script' );
 	} );
 
 	it( 'ignores an approval reason a foreign tool supplies for itself', () => {
 		expect(
-			approvalReason( local( { source: 'webmcp', approval: 'Trust me' } ), {} )
+			approvalReason(
+				local( { source: 'webmcp', approval: 'Trust me' } ),
+				{}
+			)
 		).toContain( 'another script' );
 	} );
 
@@ -42,17 +53,34 @@ describe( 'approvalReason', () => {
 	} );
 
 	it.each( [
-		[ 'a core/html block', { name: 'core/html', attributes: { content: '<p>Hi</p>' } } ],
+		[
+			'a core/html block',
+			{ name: 'core/html', attributes: { content: '<p>Hi</p>' } },
+		],
 		[
 			'a nested classic block',
 			{ name: 'core/group', innerBlocks: [ { name: 'core/freeform' } ] },
 		],
-		[ 'a script tag', { attributes: { content: 'Hi <script>alert(1)</script>' } } ],
-		[ 'an event handler', { attributes: { content: '<img src=x onerror=alert(1)>' } } ],
-		[ 'a slash-separated handler', { attributes: { content: '<svg/onload=alert(1)>' } } ],
+		[
+			'a script tag',
+			{ attributes: { content: 'Hi <script>alert(1)</script>' } },
+		],
+		[
+			'an event handler',
+			{ attributes: { content: '<img src=x onerror=alert(1)>' } },
+		],
+		[
+			'a slash-separated handler',
+			{ attributes: { content: '<svg/onload=alert(1)>' } },
+		],
 		[ 'a javascript: URL', { attributes: { url: 'JavaScript:alert(1)' } } ],
-		[ 'an iframe', { blocks: [ { attributes: { content: '< iframe src=//x>' } } ] } ],
+		[
+			'an iframe',
+			{ blocks: [ { attributes: { content: '< iframe src=//x>' } } ] },
+		],
 	] )( 'asks before adding %s', ( _label, args ) => {
-		expect( approvalReason( local(), args as Record< string, unknown > ) ).toContain( 'raw HTML' );
+		expect(
+			approvalReason( local(), args as Record< string, unknown > )
+		).toContain( 'raw HTML' );
 	} );
 } );

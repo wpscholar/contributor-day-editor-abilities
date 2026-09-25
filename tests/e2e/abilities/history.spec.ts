@@ -1,12 +1,16 @@
 import { test, expect } from '../fixtures';
 
 test.describe( 'undo and redo', () => {
-	test( 'editor/undo fails on a fresh document with nothing to undo', async ( { callTool } ) => {
+	test( 'editor/undo fails on a fresh document with nothing to undo', async ( {
+		callTool,
+	} ) => {
 		const result = await callTool( 'editor_undo' );
 		expect( result.isError ).toBe( true );
 	} );
 
-	test( 'editor/redo fails on a fresh document with nothing to redo', async ( { callTool } ) => {
+	test( 'editor/redo fails on a fresh document with nothing to redo', async ( {
+		callTool,
+	} ) => {
 		const result = await callTool( 'editor_redo' );
 		expect( result.isError ).toBe( true );
 	} );

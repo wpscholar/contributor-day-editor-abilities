@@ -23,7 +23,9 @@ const EXPECTED_TOOLS = [
 	'editor_create-pattern',
 ];
 
-test( 'registers all 20 editor abilities as WebMCP tools', async ( { editor } ) => {
+test( 'registers all 20 editor abilities as WebMCP tools', async ( {
+	editor,
+} ) => {
 	const names: string[] = await editor.evaluate( async () => {
 		const tools = await ( document as any ).modelContext.getTools();
 		return tools.map( ( tool: { name: string } ) => tool.name );

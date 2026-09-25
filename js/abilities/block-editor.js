@@ -34,11 +34,11 @@ const EDITOR_STORE = 'core/editor';
 /**
  * Serialize a block (and descendants) into a compact tree node.
  *
- * @param {Object}   store         Block editor store selectors.
- * @param {Object}   block
- * @param {number}   [maxDepth]    Depth of descendants to include.
- * @param {number}   [depth]
- * @param {Set<any>} [visitedRefs] Pattern entities on the current path.
+ * @param {Object}       store         Block editor store selectors.
+ * @param {Object}       block
+ * @param {number}       [maxDepth]    Depth of descendants to include.
+ * @param {number}       [depth]
+ * @param {Set<unknown>} [visitedRefs] Pattern entities on the current path.
  * @return {Object}
  */
 function serializeBlock(
@@ -83,7 +83,7 @@ function serializeBlock(
  * @param {Object[]}                   blocks
  * @param {(block: Object) => boolean} predicate
  * @param {Object[]}                   [matches]
- * @param {Set<any>}                   [visitedRefs] Pattern entities on the current path.
+ * @param {Set<unknown>}               [visitedRefs] Pattern entities on the current path.
  * @return {Object[]}
  */
 function collectBlocks(
@@ -126,7 +126,9 @@ function isRichTextValue( value ) {
 	return (
 		!! value &&
 		typeof value === 'object' &&
-		typeof value.toHTMLString === 'function'
+		typeof (
+			/** @type {{ toHTMLString?: unknown }} */ ( value ).toHTMLString
+		) === 'function'
 	);
 }
 
@@ -373,7 +375,7 @@ export function registerBlockEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async ( { maxDepth } = {} ) => {
+		callback: async ( { maxDepth } = /** @type {Object} */ ( {} ) ) => {
 			assertEditorReady();
 			const { select } = getData();
 
@@ -526,7 +528,7 @@ export function registerBlockEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async ( { clientId } = {} ) => {
+		callback: async ( { clientId } = /** @type {Object} */ ( {} ) ) => {
 			assertEditorReady();
 			const { select } = getData();
 			const store = select( BLOCK_EDITOR_STORE );
@@ -1015,7 +1017,7 @@ export function registerBlockEditorAbilities() {
 							contentKeys.length
 								? `Its content attributes are: ${ contentKeys.join(
 										', '
-								  ) }.`
+									) }.`
 								: 'It has no content attributes that can be edited here.'
 						}`
 					);
@@ -1225,7 +1227,9 @@ export function registerBlockEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async ( { name, rootClientId } = {} ) => {
+		callback: async (
+			{ name, rootClientId } = /** @type {Object} */ ( {} )
+		) => {
 			assertEditorReady();
 			const { select } = getData();
 			const store = select( BLOCK_EDITOR_STORE );
@@ -1457,7 +1461,7 @@ export function registerBlockEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async ( { name } = {} ) => {
+		callback: async ( { name } = /** @type {Object} */ ( {} ) ) => {
 			assertEditorReady();
 			const blockType = requireBlockType( name );
 
@@ -1653,7 +1657,7 @@ export function registerBlockEditorAbilities() {
 				idempotent: true,
 			},
 		},
-		callback: async ( { clientId } = {} ) => {
+		callback: async ( { clientId } = /** @type {Object} */ ( {} ) ) => {
 			assertEditorReady();
 			const { select, dispatch } = getData();
 			const store = select( BLOCK_EDITOR_STORE );

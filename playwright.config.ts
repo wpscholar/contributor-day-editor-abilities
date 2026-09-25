@@ -10,11 +10,13 @@ const WP_VERSION = process.env.WP_VERSION || 'latest';
 const PHP_VERSION = process.env.PHP_VERSION || '8.3';
 const PORT = Number( process.env.WP_PORT || 9400 );
 const IS_DEFAULT_SITE =
-	! process.env.WP_VERSION && ! process.env.PHP_VERSION && ! process.env.WP_PORT;
+	! process.env.WP_VERSION &&
+	! process.env.PHP_VERSION &&
+	! process.env.WP_PORT;
 
 /**
  * Runs against a real WordPress editor served by wp-playground-cli (`npm start`),
- * the same instance used for manual local development — no Docker, no @wordpress/env.
+ * the same instance used for manual local development — no Docker, no `@wordpress/env`.
  */
 export default defineConfig( {
 	testDir: './tests/e2e',

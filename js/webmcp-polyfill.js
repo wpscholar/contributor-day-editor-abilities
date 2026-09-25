@@ -33,7 +33,9 @@ let warned = false;
  */
 export function getWebMCPStatus() {
 	const secureContext =
-		typeof window !== 'undefined' ? window.isSecureContext !== false : false;
+		typeof window !== 'undefined'
+			? window.isSecureContext !== false
+			: false;
 	const available = !! getModelContext()?.registerTool;
 
 	if ( ! available && ! secureContext && ! warned ) {

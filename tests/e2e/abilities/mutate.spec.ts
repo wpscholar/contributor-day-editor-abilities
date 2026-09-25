@@ -9,11 +9,21 @@ test.describe( 'mutating the document', () => {
 			innerBlocks: [
 				{
 					name: 'core/column',
-					innerBlocks: [ { name: 'core/paragraph', attributes: { content: 'Left' } } ],
+					innerBlocks: [
+						{
+							name: 'core/paragraph',
+							attributes: { content: 'Left' },
+						},
+					],
 				},
 				{
 					name: 'core/column',
-					innerBlocks: [ { name: 'core/paragraph', attributes: { content: 'Right' } } ],
+					innerBlocks: [
+						{
+							name: 'core/paragraph',
+							attributes: { content: 'Right' },
+						},
+					],
 				},
 			],
 		} );
@@ -22,18 +32,27 @@ test.describe( 'mutating the document', () => {
 
 		const tree = await callTool( 'editor_get-editor-tree' );
 		const columns = tree.value.blocks.find(
-			( block: { clientId: string } ) => block.clientId === result.value.clientId
+			( block: { clientId: string } ) =>
+				block.clientId === result.value.clientId
 		);
 		expect( columns.innerBlocks ).toHaveLength( 2 );
-		expect( columns.innerBlocks[ 0 ].innerBlocks[ 0 ].attributes.content ).toBe( 'Left' );
+		expect(
+			columns.innerBlocks[ 0 ].innerBlocks[ 0 ].attributes.content
+		).toBe( 'Left' );
 	} );
 
-	test( 'editor/insert-block fails for an unregistered block name', async ( { callTool } ) => {
-		const result = await callTool( 'editor_insert-block', { name: 'not/a-real-block' } );
+	test( 'editor/insert-block fails for an unregistered block name', async ( {
+		callTool,
+	} ) => {
+		const result = await callTool( 'editor_insert-block', {
+			name: 'not/a-real-block',
+		} );
 		expect( result.isError ).toBe( true );
 	} );
 
-	test( 'editor/insert-block fails for a stale afterClientId', async ( { callTool } ) => {
+	test( 'editor/insert-block fails for a stale afterClientId', async ( {
+		callTool,
+	} ) => {
 		const result = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',
 			afterClientId: 'does-not-exist',
@@ -59,7 +78,9 @@ test.describe( 'mutating the document', () => {
 		expect( update.value.updatedAttributes ).toEqual( [ 'content' ] );
 	} );
 
-	test( 'editor/update-block merges nested object attributes', async ( { callTool } ) => {
+	test( 'editor/update-block merges nested object attributes', async ( {
+		callTool,
+	} ) => {
 		const insert = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',
 			attributes: {
@@ -73,7 +94,9 @@ test.describe( 'mutating the document', () => {
 
 		const update = await callTool( 'editor_update-block', {
 			clientId: insert.value.clientId,
-			attributes: { style: { color: { text: '#ff0000', background: null } } },
+			attributes: {
+				style: { color: { text: '#ff0000', background: null } },
+			},
 		} );
 
 		expect( update.isError ).toBe( false );
@@ -83,7 +106,9 @@ test.describe( 'mutating the document', () => {
 		} );
 	} );
 
-	test( 'editor/move-block repositions a block after a sibling', async ( { callTool } ) => {
+	test( 'editor/move-block repositions a block after a sibling', async ( {
+		callTool,
+	} ) => {
 		const first = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',
 			attributes: { content: 'First' },
@@ -101,13 +126,17 @@ test.describe( 'mutating the document', () => {
 		expect( move.value.index ).toBe( 1 );
 
 		const tree = await callTool( 'editor_get-editor-tree' );
-		const order = tree.value.blocks.map( ( block: { clientId: string } ) => block.clientId );
+		const order = tree.value.blocks.map(
+			( block: { clientId: string } ) => block.clientId
+		);
 		expect( order.indexOf( first.value.clientId ) ).toBeGreaterThan(
 			order.indexOf( second.value.clientId )
 		);
 	} );
 
-	test( 'editor/move-block refuses to move a block into itself', async ( { callTool } ) => {
+	test( 'editor/move-block refuses to move a block into itself', async ( {
+		callTool,
+	} ) => {
 		const columns = await callTool( 'editor_insert-block', {
 			name: 'core/columns',
 			innerBlocks: [ { name: 'core/column' }, { name: 'core/column' } ],
@@ -120,7 +149,9 @@ test.describe( 'mutating the document', () => {
 		expect( result.isError ).toBe( true );
 	} );
 
-	test( 'editor/transform-block converts a paragraph into a heading', async ( { callTool } ) => {
+	test( 'editor/transform-block converts a paragraph into a heading', async ( {
+		callTool,
+	} ) => {
 		const insert = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',
 			attributes: { content: 'Turn me into a heading' },
@@ -140,7 +171,9 @@ test.describe( 'mutating the document', () => {
 		expect( stale.isError ).toBe( true );
 	} );
 
-	test( 'editor/transform-block fails when already that block type', async ( { callTool } ) => {
+	test( 'editor/transform-block fails when already that block type', async ( {
+		callTool,
+	} ) => {
 		const insert = await callTool( 'editor_insert-block', {
 			name: 'core/paragraph',
 			attributes: { content: 'Already a paragraph' },
@@ -161,17 +194,26 @@ test.describe( 'mutating the document', () => {
 			innerBlocks: [
 				{
 					name: 'core/column',
-					innerBlocks: [ { name: 'core/paragraph', attributes: { content: 'Doomed' } } ],
+					innerBlocks: [
+						{
+							name: 'core/paragraph',
+							attributes: { content: 'Doomed' },
+						},
+					],
 				},
 				{ name: 'core/column' },
 			],
 		} );
 
-		const remove = await callTool( 'editor_remove-block', { clientId: columns.value.clientId } );
+		const remove = await callTool( 'editor_remove-block', {
+			clientId: columns.value.clientId,
+		} );
 		expect( remove.isError ).toBe( false );
 		expect( remove.value.removedInnerBlockCount ).toBe( 2 );
 
-		const stillThere = await callTool( 'editor_find-editor-blocks', { search: 'Doomed' } );
+		const stillThere = await callTool( 'editor_find-editor-blocks', {
+			search: 'Doomed',
+		} );
 		expect( stillThere.value.count ).toBe( 0 );
 	} );
 } );

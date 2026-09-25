@@ -18,7 +18,7 @@ import { getModelContext } from '@agentic-editor/webmcp-polyfill';
 /** @type {Map<string, Object>} */
 const localTools = new Map();
 
-/** @type {Set<Function>} */
+/** @type {Set<() => void>} */
 const changeListeners = new Set();
 
 let listeningForToolChange = false;
@@ -26,13 +26,13 @@ let listeningForToolChange = false;
 /**
  * Record a tool this page registered, along with the function that runs it.
  *
- * @param {Object}   descriptor             Tool descriptor as passed to registerTool.
- * @param {string}   descriptor.name        Tool name.
- * @param {string}   [descriptor.description]
- * @param {Object}   [descriptor.inputSchema]
- * @param {Object}   [descriptor.annotations]
- * @param {string}   [descriptor.approval]  Why a person must approve each call.
- * @param {Function} descriptor.execute     Executor.
+ * @param {Object}                             descriptor               Tool descriptor as passed to registerTool.
+ * @param {string}                             descriptor.name          Tool name.
+ * @param {string}                             [descriptor.description]
+ * @param {Object}                             [descriptor.inputSchema]
+ * @param {Object}                             [descriptor.annotations]
+ * @param {string}                             [descriptor.approval]    Why a person must approve each call.
+ * @param {(input: Object) => Promise<Object>} descriptor.execute       Executor.
  */
 export function rememberLocalTool( descriptor ) {
 	if ( ! descriptor?.name || typeof descriptor.execute !== 'function' ) {
@@ -45,8 +45,8 @@ export function rememberLocalTool( descriptor ) {
 /**
  * Subscribe to tool set changes.
  *
- * @param {Function} listener Called with no arguments when the tool set changes.
- * @return {Function} Unsubscribe.
+ * @param {() => void} listener Called with no arguments when the tool set changes.
+ * @return {() => void} Unsubscribe.
  */
 export function onToolsChanged( listener ) {
 	changeListeners.add( listener );
@@ -59,7 +59,10 @@ function notifyToolsChanged() {
 		try {
 			listener();
 		} catch ( error ) {
-			console.warn( '[agentic-editor] Tool change listener failed:', error );
+			console.warn(
+				'[agentic-editor] Tool change listener failed:',
+				error
+			);
 		}
 	}
 }
@@ -90,7 +93,7 @@ function parseInputSchema( inputSchema ) {
 		return inputSchema;
 	}
 	try {
-		const parsed = JSON.parse( inputSchema );
+		const parsed = JSON.parse( String( inputSchema ) );
 		return parsed && typeof parsed === 'object' ? parsed : undefined;
 	} catch {
 		return undefined;
@@ -144,7 +147,10 @@ export async function listTools() {
 				}
 			}
 		} catch ( error ) {
-			console.warn( '[agentic-editor] Could not list WebMCP tools:', error );
+			console.warn(
+				'[agentic-editor] Could not list WebMCP tools:',
+				error
+			);
 		}
 	}
 
@@ -168,7 +174,12 @@ function normalizeToolResult( raw ) {
 		return { isError: false, value: null, text: '' };
 	}
 
-	if ( typeof raw !== 'object' || ! Array.isArray( raw.content ) ) {
+	const result =
+		/** @type {{ content?: unknown, isError?: boolean, structuredContent?: unknown }} */ (
+			raw
+		);
+
+	if ( typeof raw !== 'object' || ! Array.isArray( result.content ) ) {
 		return {
 			isError: false,
 			value: raw,
@@ -176,14 +187,17 @@ function normalizeToolResult( raw ) {
 		};
 	}
 
-	const text = raw.content
+	const text = result.content
 		.filter( ( block ) => block?.type === 'text' )
 		.map( ( block ) => block.text )
 		.join( '\n' );
 
 	return {
-		isError: !! raw.isError,
-		value: raw.structuredContent !== undefined ? raw.structuredContent : text,
+		isError: !! result.isError,
+		value:
+			result.structuredContent !== undefined
+				? result.structuredContent
+				: text,
 		text,
 	};
 }
@@ -276,7 +290,7 @@ function parseMaybeJson( value ) {
 }
 
 /**
- * @param {unknown} error
+ * @param {Partial<Error>} error
  * @return {{ isError: true, value: { error: string }, text: string }}
  */
 function toolFailure( error ) {

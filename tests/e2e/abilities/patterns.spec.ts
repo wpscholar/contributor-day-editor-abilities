@@ -1,11 +1,13 @@
 import { test, expect } from '../fixtures';
 
 test.describe( 'patterns', () => {
-	test( 'editor/get-pattern-categories lists at least one category', async ( { callTool } ) => {
+	test( 'editor/get-pattern-categories lists at least one category', async ( {
+		callTool,
+	} ) => {
 		const result = await callTool( 'editor_get-pattern-categories' );
 		expect( result.isError ).toBe( false );
 		expect( result.value.count ).toBeGreaterThan( 0 );
-		expect( result.value.categories.length ).toBe( result.value.count );
+		expect( result.value.categories ).toHaveLength( result.value.count );
 	} );
 
 	test( 'editor/get-patterns lists patterns, and editor/get-pattern reads one in full', async ( {
@@ -14,18 +16,26 @@ test.describe( 'patterns', () => {
 		const list = await callTool( 'editor_get-patterns' );
 		expect( list.isError ).toBe( false );
 
-		test.skip( list.value.totalCount === 0, 'This site registers no patterns to read.' );
+		// The test site's theme always registers patterns, so an empty list
+		// is a failure to find them, not a site without any.
+		expect( list.value.totalCount ).toBeGreaterThan( 0 );
 
 		const first = list.value.patterns[ 0 ];
-		const pattern = await callTool( 'editor_get-pattern', { name: first.name } );
+		const pattern = await callTool( 'editor_get-pattern', {
+			name: first.name,
+		} );
 		expect( pattern.isError ).toBe( false );
 		expect( pattern.value.name ).toBe( first.name );
 		expect( pattern.value.blockCount ).toBeGreaterThan( 0 );
 		expect( pattern.value.blocks.length ).toBeGreaterThan( 0 );
 	} );
 
-	test( 'editor/get-pattern fails for an unknown pattern name', async ( { callTool } ) => {
-		const result = await callTool( 'editor_get-pattern', { name: 'not/a-real-pattern' } );
+	test( 'editor/get-pattern fails for an unknown pattern name', async ( {
+		callTool,
+	} ) => {
+		const result = await callTool( 'editor_get-pattern', {
+			name: 'not/a-real-pattern',
+		} );
 		expect( result.isError ).toBe( true );
 	} );
 
@@ -36,14 +46,21 @@ test.describe( 'patterns', () => {
 
 		const created = await callTool( 'editor_create-pattern', {
 			title,
-			blocks: [ { name: 'core/paragraph', attributes: { content: 'Saved from a test' } } ],
+			blocks: [
+				{
+					name: 'core/paragraph',
+					attributes: { content: 'Saved from a test' },
+				},
+			],
 		} );
 		expect( created.isError ).toBe( false );
 		expect( created.value.title ).toBe( title );
 		expect( created.value.blockCount ).toBe( 1 );
 		expect( created.value.syncStatus ).toBe( 'unsynced' );
 
-		const inserted = await callTool( 'editor_insert-pattern', { name: created.value.name } );
+		const inserted = await callTool( 'editor_insert-pattern', {
+			name: created.value.name,
+		} );
 		expect( inserted.isError ).toBe( false );
 		expect( inserted.value.count ).toBeGreaterThan( 0 );
 

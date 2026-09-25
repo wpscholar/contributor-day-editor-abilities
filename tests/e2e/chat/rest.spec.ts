@@ -6,7 +6,10 @@ type ChatError = { code: string; message: string; status: number };
 /**
  * POST one chat request and return the error it was answered with, if any.
  */
-async function postChat( page: Page, data: Record< string, unknown > ): Promise< ChatError | null > {
+async function postChat(
+	page: Page,
+	data: Record< string, unknown >
+): Promise< ChatError | null > {
 	return page.evaluate( async ( data ) => {
 		try {
 			await ( window as any ).wp.apiFetch( {
@@ -31,7 +34,10 @@ async function postChat( page: Page, data: Record< string, unknown > ): Promise<
  * Every case here is rejected while the conversation is rebuilt, before any
  * provider is called, so the spec needs no AI connector.
  */
-async function postAssistantParts( page: Page, parts: unknown[] ): Promise< ChatError | null > {
+async function postAssistantParts(
+	page: Page,
+	parts: unknown[]
+): Promise< ChatError | null > {
 	return postChat( page, {
 		messages: [
 			{ role: 'user', content: 'Hello' },
@@ -52,14 +58,21 @@ function toolRounds( rounds: number ) {
 	for ( let round = 0; round < rounds; round += 1 ) {
 		messages.push(
 			{ role: 'assistant', parts: [ { type: 'file', file: {} } ] },
-			{ role: 'tool', responses: [ { id: `call_${ round }`, name: 'x', response: {} } ] }
+			{
+				role: 'tool',
+				responses: [
+					{ id: `call_${ round }`, name: 'x', response: {} },
+				],
+			}
 		);
 	}
 	return messages;
 }
 
 test.describe( 'chat REST replay', () => {
-	test( 'rejects a file part instead of reading a local path', async ( { editor } ) => {
+	test( 'rejects a file part instead of reading a local path', async ( {
+		editor,
+	} ) => {
 		const error = await postAssistantParts( editor, [
 			{
 				type: 'file',
@@ -81,7 +94,11 @@ test.describe( 'chat REST replay', () => {
 		const error = await postAssistantParts( editor, [
 			{
 				type: 'file',
-				file: { fileType: 'remote', mimeType: 'text/plain', url: 'http://127.0.0.1/' },
+				file: {
+					fileType: 'remote',
+					mimeType: 'text/plain',
+					url: 'http://127.0.0.1/',
+				},
 			},
 		] );
 
@@ -89,7 +106,9 @@ test.describe( 'chat REST replay', () => {
 		expect( error?.status ).toBe( 400 );
 	} );
 
-	test( 'rejects a function response in an assistant turn', async ( { editor } ) => {
+	test( 'rejects a function response in an assistant turn', async ( {
+		editor,
+	} ) => {
 		const error = await postAssistantParts( editor, [
 			{
 				type: 'function_response',
@@ -101,7 +120,9 @@ test.describe( 'chat REST replay', () => {
 		expect( error?.status ).toBe( 400 );
 	} );
 
-	test( 'answers malformed parts with a 400, not a fatal', async ( { editor } ) => {
+	test( 'answers malformed parts with a 400, not a fatal', async ( {
+		editor,
+	} ) => {
 		for ( const part of [
 			{ type: 'text', text: [ 'not', 'a', 'string' ] },
 			{ type: 'text', text: 'hi', channel: 'nonsense' },
@@ -122,41 +143,69 @@ test.describe( 'chat REST replay', () => {
 test.describe( 'chat REST limits', () => {
 	test( 'rejects a body over the size limit', async ( { editor } ) => {
 		const error = await postChat( editor, {
-			messages: [ { role: 'user', content: 'x'.repeat( 1024 * 1024 + 1 ) } ],
+			messages: [
+				{ role: 'user', content: 'x'.repeat( 1024 * 1024 + 1 ) },
+			],
 		} );
 
-		expect( error ).toMatchObject( { code: 'agentic_editor_request_too_large', status: 413 } );
+		expect( error ).toMatchObject( {
+			code: 'agentic_editor_request_too_large',
+			status: 413,
+		} );
 	} );
 
 	test( 'rejects too many messages', async ( { editor } ) => {
 		const error = await postChat( editor, {
-			messages: Array.from( { length: 501 }, () => ( { role: 'user', content: 'Hi' } ) ),
+			messages: Array.from( { length: 501 }, () => ( {
+				role: 'user',
+				content: 'Hi',
+			} ) ),
 		} );
 
-		expect( error ).toMatchObject( { code: 'agentic_editor_too_many_messages', status: 400 } );
+		expect( error ).toMatchObject( {
+			code: 'agentic_editor_too_many_messages',
+			status: 400,
+		} );
 	} );
 
 	test( 'rejects too many tools', async ( { editor } ) => {
 		const error = await postChat( editor, {
 			messages: [ { role: 'user', content: 'Hi' } ],
-			tools: Array.from( { length: 129 }, ( _, index ) => ( { name: `tool_${ index }` } ) ),
+			tools: Array.from( { length: 129 }, ( _, index ) => ( {
+				name: `tool_${ index }`,
+			} ) ),
 		} );
 
-		expect( error ).toMatchObject( { code: 'agentic_editor_too_many_tools', status: 400 } );
+		expect( error ).toMatchObject( {
+			code: 'agentic_editor_too_many_tools',
+			status: 400,
+		} );
 	} );
 
 	test( 'enforces the tool round limit server-side', async ( { editor } ) => {
 		const over = await postChat( editor, { messages: toolRounds( 26 ) } );
-		expect( over ).toMatchObject( { code: 'agentic_editor_too_many_rounds', status: 400 } );
+		expect( over ).toMatchObject( {
+			code: 'agentic_editor_too_many_rounds',
+			status: 400,
+		} );
 
 		// 25 rounds is within the limit, so it fails later, on the file part.
 		const within = await postChat( editor, { messages: toolRounds( 25 ) } );
-		expect( within ).toMatchObject( { code: 'agentic_editor_invalid_message', status: 400 } );
+		expect( within ).toMatchObject( {
+			code: 'agentic_editor_invalid_message',
+			status: 400,
+		} );
 
 		// Rounds before the latest user message belong to earlier messages.
 		const earlier = await postChat( editor, {
-			messages: [ ...toolRounds( 26 ), { role: 'user', content: 'Next question' } ],
+			messages: [
+				...toolRounds( 26 ),
+				{ role: 'user', content: 'Next question' },
+			],
 		} );
-		expect( earlier ).toMatchObject( { code: 'agentic_editor_invalid_message', status: 400 } );
+		expect( earlier ).toMatchObject( {
+			code: 'agentic_editor_invalid_message',
+			status: 400,
+		} );
 	} );
 } );

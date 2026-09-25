@@ -44,8 +44,7 @@ function getEditorContext(): Record< string, unknown > {
 
 		if ( selectedId ) {
 			const block = blockEditor.getBlock?.( selectedId as never ) as
-				| { name?: string }
-				| undefined;
+				{ name?: string } | undefined;
 
 			if ( block ) {
 				notes.push(

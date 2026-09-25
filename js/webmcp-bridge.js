@@ -72,7 +72,7 @@ function formatToolResult( result ) {
  * Surface ability failures as tool errors the agent can read and retry from,
  * rather than rejecting the execute() call.
  *
- * @param {unknown} error
+ * @param {Partial<Error>} error
  * @return {{ content: Array<{ type: string, text: string }>, isError: true }}
  */
 function formatToolError( error ) {
@@ -162,7 +162,7 @@ function toToolOutputSchema( schema ) {
 }
 
 /**
- * @param {unknown} error
+ * @param {Partial<Error>} error
  * @return {boolean}
  */
 function isAlreadyRegisteredError( error ) {
@@ -217,7 +217,7 @@ async function waitForModelContext( timeoutMs = 3000, graceAfterLoadMs = 500 ) {
 /**
  * Register one ability as a page-lifetime WebMCP tool (no AbortSignal).
  *
- * @param {string} abilityName
+ * @param {string}       abilityName
  * @param {ModelContext} modelContext
  * @return {Promise<boolean>}
  */

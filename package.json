@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch --mode development",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript-native/bin/tsc --noEmit && node node_modules/typescript-native/bin/tsc -p tsconfig.js.json",
     "test": "vitest run",
     "start": "wp-playground-cli start --skip-browser --wp=latest",
     "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
@@ -15,7 +15,11 @@
     "vendor": "bash bin/vendor-webmcp-polyfill.sh",
     "zip": "bash bin/build-zip.sh",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "lint": "npm run lint:js && npm run lint:php",
+    "lint:js": "eslint .",
+    "lint:php": "composer lint",
+    "format": "prettier --write \"js/**/*.js\" \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\" \"*.{ts,mjs}\""
   },
   "devDependencies": {
     "@mcp-b/webmcp-polyfill": "^5.1.0",
@@ -24,11 +28,17 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.5",
+    "@wordpress/eslint-plugin": "^27.0.0",
+    "@wordpress/prettier-config": "^4.56.0",
     "@wp-playground/cli": "^3.1.55",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "npm:wp-prettier@^3.9.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
+    "typescript": "~6.0.3",
+    "typescript-native": "npm:typescript@^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.1"
   },
@@ -41,5 +51,6 @@
     "radix-ui": "^1.6.7",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
-  }
+  },
+  "prettier": "@wordpress/prettier-config"
 }

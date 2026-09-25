@@ -30,7 +30,9 @@ export interface WordPressGlobal {
 		PluginSidebar?: React.ComponentType< PluginSidebarProps >;
 	};
 	data?: {
-		select: ( store: string ) => Record< string, ( ...args: never[] ) => unknown >;
+		select: (
+			store: string
+		) => Record< string, ( ...args: never[] ) => unknown >;
 	};
 }
 
