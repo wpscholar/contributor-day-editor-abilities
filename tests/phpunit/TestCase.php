@@ -39,8 +39,8 @@ abstract class TestCase extends PHPUnitTestCase {
 				'absint'                => static function ( $value ) {
 					return abs( (int) $value );
 				},
-				'wp_json_encode'        => static function ( $value ) {
-					return json_encode( $value );
+				'wp_json_encode'        => static function ( $value, $flags = 0 ) {
+					return json_encode( $value, $flags );
 				},
 				'is_wp_error'           => static function ( $value ) {
 					return $value instanceof \WP_Error;

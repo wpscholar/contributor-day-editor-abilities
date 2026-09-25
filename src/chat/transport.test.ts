@@ -251,6 +251,36 @@ describe( 'WordPressAiTransport', () => {
 		expectEveryCallAnswered( wire );
 	} );
 
+	it( 'reads the context on every round and keeps the attachment label out of the wire', async () => {
+		const { requests } = respondWith(
+			callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ),
+			textTurn( 'Done.' )
+		);
+
+		let round = 0;
+		const message = userMessage( 'Shorten this.' );
+		message.metadata = { attachment: { label: 'Paragraph: Hello' } };
+
+		await send(
+			new WordPressAiTransport( {
+				getContext: () => ( {
+					attachedBlock: { clientId: 'abc', round: ++round },
+				} ),
+			} ),
+			[ message ]
+		);
+
+		expect(
+			requests().map( ( request ) => request.context.attachedBlock )
+		).toEqual( [
+			{ clientId: 'abc', round: 1 },
+			{ clientId: 'abc', round: 2 },
+		] );
+		expect( requests()[ 0 ].messages ).toEqual( [
+			{ role: 'user', content: 'Shorten this.' },
+		] );
+	} );
+
 	it( 'answers the last round of calls when it hits the round limit', async () => {
 		chatConfig.maxToolRounds = 2;
 		const { requests } = respondWith(

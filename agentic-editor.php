@@ -154,6 +154,8 @@ function agentic_editor_enqueue_editor_chat() {
 	}
 
 	wp_enqueue_script( 'wp-plugins' );
+	wp_enqueue_script( 'wp-data' );
+	wp_enqueue_script( 'wp-blocks' );
 	wp_enqueue_script( 'wp-element' );
 	wp_enqueue_script( 'wp-components' );
 	wp_enqueue_script( 'wp-editor' );

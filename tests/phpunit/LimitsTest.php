@@ -50,11 +50,12 @@ class LimitsTest extends TestCase {
 	public function test_default_limits() {
 		$this->assertSame(
 			array(
-				'max_body_bytes'      => MB_IN_BYTES,
-				'max_messages'        => 500,
-				'max_tools'           => 128,
-				'max_context_chars'   => 2000,
-				'requests_per_minute' => 60,
+				'max_body_bytes'       => MB_IN_BYTES,
+				'max_messages'         => 500,
+				'max_tools'            => 128,
+				'max_context_chars'    => 2000,
+				'max_attachment_chars' => 8000,
+				'requests_per_minute'  => 60,
 			),
 			agentic_editor_chat_limits()
 		);

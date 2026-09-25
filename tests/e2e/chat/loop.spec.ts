@@ -345,3 +345,99 @@ test.describe( 'chat loop', () => {
 		);
 	} );
 } );
+
+test.describe( 'selected block attachment', () => {
+	/** Insert two paragraphs and return their client IDs. */
+	async function insertParagraphs( page: Page ): Promise< string[] > {
+		return page.evaluate( () => {
+			const { dispatch, select } = ( window as any ).wp.data;
+			const { createBlock } = ( window as any ).wp.blocks;
+			dispatch( 'core/block-editor' ).insertBlocks( [
+				createBlock( 'core/paragraph', {
+					content: 'First <b>one</b>',
+				} ),
+				createBlock( 'core/paragraph', { content: 'Second one' } ),
+			] );
+			return select( 'core/block-editor' )
+				.getBlocks()
+				.map( ( block: any ) => block.clientId );
+		} );
+	}
+
+	async function selectBlock( page: Page, clientId: string | null ) {
+		await page.evaluate( ( id ) => {
+			const store = ( window as any ).wp.data.dispatch(
+				'core/block-editor'
+			);
+			if ( id ) {
+				store.selectBlock( id );
+			} else {
+				store.clearSelectedBlock();
+			}
+		}, clientId );
+	}
+
+	test( 'attaches the selected block until it is removed or deselected', async ( {
+		page,
+	} ) => {
+		const bodies = await fakeChat( page, [
+			textTurn( 'One.' ),
+			textTurn( 'Two.' ),
+			textTurn( 'Three.' ),
+		] );
+		await pretendConnector( page );
+		await openEditor( page );
+		const [ first, second ] = await insertParagraphs( page );
+		const panel = await openSidebar( page );
+		const chip = panel.getByText( 'Attached', { exact: true } );
+		const remove = panel.getByRole( 'button', {
+			name: 'Remove attached block',
+		} );
+
+		await selectBlock( page, null );
+		await expect( chip ).toBeHidden();
+
+		await selectBlock( page, first );
+		await expect( chip ).toBeVisible();
+		await expect( panel.getByText( 'Paragraph: First one' ) ).toBeVisible();
+
+		await panel.getByLabel( 'Message' ).fill( 'Shorten this.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect( panel.getByRole( 'status' ) ).toHaveText( 'Done' );
+
+		expect( bodies[ 0 ].context.attachedBlock ).toMatchObject( {
+			clientId: first,
+			name: 'core/paragraph',
+			attributes: { content: 'First <b>one</b>' },
+		} );
+		expect( bodies[ 0 ].context.notes ).not.toContain( first );
+		// The transcript records what the message was sent with.
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Paragraph: First one' )
+		).toBeVisible();
+		// The attachment stays for the next turn while the block is selected.
+		await expect( chip ).toBeVisible();
+
+		// Removing it stays removed while the same block is selected.
+		await remove.click();
+		await expect( chip ).toBeHidden();
+		await panel.getByLabel( 'Message' ).fill( 'Summarize the post.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Two.' )
+		).toBeVisible();
+		expect( bodies[ 1 ].context.attachedBlock ).toBeUndefined();
+
+		// A different block attaches again.
+		await selectBlock( page, second );
+		await expect(
+			panel.getByText( 'Paragraph: Second one' )
+		).toBeVisible();
+		await panel.getByLabel( 'Message' ).fill( 'And this?' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Three.' )
+		).toBeVisible();
+		expect( bodies[ 2 ].context.attachedBlock.clientId ).toBe( second );
+	} );
+} );

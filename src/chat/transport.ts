@@ -31,6 +31,8 @@ import { approvalReason } from './approval';
  */
 export interface ChatMetadata {
 	wire?: WireMessage[];
+	/** What the user attached to this message, for the transcript only. */
+	attachment?: { label: string };
 	model?: string;
 	provider?: string;
 }

@@ -2,8 +2,9 @@
  * Mount the chat as a block editor sidebar.
  *
  * This is the only editor-aware part of the chat. It describes the post being
- * edited so the assistant knows what the editor tools are pointed at, and
- * renders the shared panel into a PluginSidebar.
+ * edited so the assistant knows what the editor tools are pointed at, attaches
+ * the selected block to the user's messages, and renders the shared panel into
+ * a PluginSidebar.
  *
  * The panel goes in as ordinary children rather than being mounted into a ref'd
  * div, which only works because this bundle uses the same React instance as the
@@ -12,9 +13,21 @@
 
 import '@/styles/chat.css';
 
-import { ChatPanel } from '@/components/chat-panel';
+import * as React from 'react';
+
+import { ChatPanel, type ChatAttachment } from '@/components/chat-panel';
+import type { BlockEditorSelectors, EditorBlock } from '@/lib/wp';
 
 const SIDEBAR_NAME = 'agentic-editor-chat';
+
+/**
+ * Above this many characters of JSON, the attached block goes with fewer
+ * levels of inner blocks. The server has its own, higher cap.
+ */
+const ATTACHMENT_CHARS = 6000;
+
+/** Longest excerpt of a block's text shown in the attachment label. */
+const LABEL_EXCERPT_CHARS = 40;
 
 /** Describe what the editor is currently showing. */
 function getEditorContext(): Record< string, unknown > {
@@ -38,18 +51,8 @@ function getEditorContext(): Record< string, unknown > {
 			notes.push( `Its title is "${ title }".` );
 		}
 
-		const blockEditor = select( 'core/block-editor' );
-		const selectedId = blockEditor?.getSelectedBlockClientId?.();
-
-		if ( selectedId ) {
-			const block = blockEditor?.getBlock?.( selectedId );
-
-			if ( block ) {
-				notes.push(
-					`The selected block is ${ block.name } with client ID ${ selectedId }.`
-				);
-			}
-		}
+		// The selected block is not described here: it is the attachment's
+		// to send, and leaving it out is what removing the attachment means.
 	} catch {
 		// A partial context is better than failing the request.
 	}
@@ -59,6 +62,184 @@ function getEditorContext(): Record< string, unknown > {
 	);
 
 	return { screen: 'block editor', notes: notes.join( ' ' ) };
+}
+
+interface BlockSnapshot {
+	clientId: string;
+	name: string;
+	attributes: Record< string, unknown >;
+	innerBlocks: BlockSnapshot[];
+	truncatedInnerBlockCount?: number;
+}
+
+/**
+ * A block and its inner blocks, to a depth. Children come from `getBlocks()`,
+ * which, unlike `getBlock()`, sees inside synced patterns and template parts.
+ */
+function snapshotBlock(
+	store: BlockEditorSelectors,
+	block: EditorBlock,
+	maxDepth: number,
+	depth = 0
+): BlockSnapshot {
+	const children = store.getBlocks?.( block.clientId ) ?? [];
+	const node: BlockSnapshot = {
+		clientId: block.clientId,
+		name: block.name,
+		attributes: block.attributes ?? {},
+		innerBlocks: [],
+	};
+
+	if ( depth >= maxDepth ) {
+		if ( children.length ) {
+			node.truncatedInnerBlockCount = children.length;
+		}
+		return node;
+	}
+
+	node.innerBlocks = children.map( ( child ) =>
+		snapshotBlock( store, child, maxDepth, depth + 1 )
+	);
+	return node;
+}
+
+function isTruncated( node: BlockSnapshot | undefined ): boolean {
+	return (
+		!! node &&
+		( !! node.truncatedInnerBlockCount ||
+			node.innerBlocks.some( isTruncated ) )
+	);
+}
+
+/**
+ * Context for an attached block, read as it is now. Deeper inner blocks are
+ * dropped until it fits; the server names a block that still does not.
+ */
+function getAttachedBlockContext(
+	clientId: string
+): Record< string, unknown > {
+	try {
+		const store = window.wp?.data?.select( 'core/block-editor' );
+		const block = store?.getBlock?.( clientId );
+
+		// The block may have been removed since it was attached.
+		if ( ! store || ! block ) {
+			return {};
+		}
+
+		let snapshot: BlockSnapshot | undefined;
+		for ( const depth of [ Infinity, 2, 1, 0 ] ) {
+			snapshot = snapshotBlock( store, block, depth );
+			if ( JSON.stringify( snapshot ).length <= ATTACHMENT_CHARS ) {
+				break;
+			}
+		}
+
+		return {
+			attachedBlock: { ...snapshot, truncated: isTruncated( snapshot ) },
+		};
+	} catch {
+		return {};
+	}
+}
+
+/** "Paragraph: Welcome to…", or just the block title when it has no text. */
+function describeBlock( block: EditorBlock ): string {
+	const blocks = window.wp?.blocks;
+	const blockType = blocks?.getBlockType?.( block.name );
+	const title = blockType?.title || block.name;
+
+	let text = '';
+	try {
+		text =
+			// The 'accessibility' context is the one where text blocks
+			// report their text rather than only their title.
+			blocks?.__experimentalGetBlockLabel?.(
+				blockType,
+				block.attributes ?? {},
+				'accessibility'
+			) ?? '';
+	} catch {
+		// The title alone is enough.
+	}
+
+	text = text
+		.replace( /<[^>]*>/g, '' )
+		.replace( /\s+/g, ' ' )
+		.trim();
+
+	if ( ! text || text === title ) {
+		return title;
+	}
+
+	return text.length > LABEL_EXCERPT_CHARS
+		? `${ title }: ${ text.slice( 0, LABEL_EXCERPT_CHARS ).trimEnd() }…`
+		: `${ title }: ${ text }`;
+}
+
+/**
+ * The selected block as a chat attachment.
+ *
+ * It stays attached while the block stays selected. Removing it hides it
+ * until a different block is selected, and deselecting starts over.
+ */
+function useSelectedBlockAttachment(): {
+	attachment: ChatAttachment | null;
+	clear: () => void;
+} {
+	// registerChatSidebar() checked for it before mounting this.
+	const useSelect = window.wp!.data!.useSelect!;
+	const selected = useSelect( ( select ) => {
+		const store = select( 'core/block-editor' );
+		const clientId = store?.getSelectedBlockClientId?.();
+		const block = clientId ? store?.getBlock?.( clientId ) : null;
+		// A string, so an unrelated store change does not re-render.
+		return block ? `${ block.clientId }\n${ describeBlock( block ) }` : '';
+	} );
+
+	const [ dismissedId, setDismissedId ] = React.useState< string | null >(
+		null
+	);
+
+	const [ clientId = '', label = '' ] = selected.split( '\n' );
+
+	React.useEffect( () => {
+		if ( ! clientId ) {
+			setDismissedId( null );
+		}
+	}, [ clientId ] );
+
+	const attachment = React.useMemo< ChatAttachment | null >(
+		() =>
+			clientId && clientId !== dismissedId
+				? {
+						id: clientId,
+						label,
+						getContext: () => getAttachedBlockContext( clientId ),
+					}
+				: null,
+		[ clientId, dismissedId, label ]
+	);
+
+	const clear = React.useCallback(
+		() => setDismissedId( clientId || null ),
+		[ clientId ]
+	);
+
+	return { attachment, clear };
+}
+
+function ChatSidebar() {
+	const { attachment, clear } = useSelectedBlockAttachment();
+
+	return (
+		<ChatPanel
+			getContext={ getEditorContext }
+			attachment={ attachment }
+			onClearAttachment={ clear }
+			suggestions={ SUGGESTIONS }
+		/>
+	);
 }
 
 const SUGGESTIONS = [
@@ -73,6 +254,7 @@ function registerChatSidebar() {
 
 	if (
 		! wp?.plugins?.registerPlugin ||
+		! wp.data?.useSelect ||
 		! ( wp.editor?.PluginSidebar || wp.editPost?.PluginSidebar )
 	) {
 		console.warn(
@@ -92,10 +274,7 @@ function registerChatSidebar() {
 				icon="format-chat"
 				className="cdchat-sidebar"
 			>
-				<ChatPanel
-					getContext={ getEditorContext }
-					suggestions={ SUGGESTIONS }
-				/>
+				<ChatSidebar />
 			</PluginSidebar>
 		),
 	} );

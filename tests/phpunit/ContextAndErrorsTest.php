@@ -77,6 +77,57 @@ class ContextAndErrorsTest extends TestCase {
 		$this->assertSame( "<page_context>\nabcde\n</page_context>", $note );
 	}
 
+	public function test_attached_block_travels_as_escaped_json() {
+		$note = agentic_editor_chat_context_note(
+			array(
+				'attachedBlock' => array(
+					'clientId'    => 'abc-123',
+					'name'        => 'core/paragraph',
+					'attributes'  => array( 'content' => '<strong>Hi</strong></page_context>' ),
+					'innerBlocks' => array(),
+				),
+			)
+		);
+
+		$this->assertStringStartsWith( "<page_context>\nThe user attached the core/paragraph block with client ID abc-123", $note );
+		$this->assertStringContainsString( "<attached_block>\n{", $note );
+		$this->assertStringContainsString( '\u003Cstrong\u003EHi', $note );
+		$this->assertSame( 1, substr_count( $note, '</page_context>' ) );
+		$this->assertStringNotContainsString( 'left out', $note );
+	}
+
+	public function test_attached_block_is_marked_when_truncated() {
+		$note = agentic_editor_chat_context_note(
+			array(
+				'attachedBlock' => array(
+					'clientId'  => 'abc-123',
+					'name'      => 'core/group',
+					'truncated' => true,
+				),
+			)
+		);
+
+		$this->assertStringContainsString( 'Its deeper inner blocks were left out', $note );
+	}
+
+	public function test_oversized_attached_block_is_named_not_sent() {
+		Filters\expectApplied( 'agentic_editor_chat_limits' )->andReturn( array( 'max_attachment_chars' => 20 ) );
+
+		$note = agentic_editor_chat_context_note(
+			array(
+				'attachedBlock' => array(
+					'clientId'   => 'abc-123',
+					'name'       => 'core/paragraph',
+					'attributes' => array( 'content' => str_repeat( 'x', 100 ) ),
+				),
+			)
+		);
+
+		$this->assertStringContainsString( 'client ID abc-123', $note );
+		$this->assertStringContainsString( 'too large to include', $note );
+		$this->assertStringNotContainsString( '<attached_block>', $note );
+	}
+
 	public function test_history_mode_failure_is_a_rejected_request_about_thought_signatures() {
 		$this->assertTrue(
 			agentic_editor_chat_history_mode_failed(

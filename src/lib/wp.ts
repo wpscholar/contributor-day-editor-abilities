@@ -32,7 +32,25 @@ export interface WordPressGlobal {
 	};
 	data?: {
 		select: EditorSelect;
+		useSelect?: < T >( mapSelect: ( select: EditorSelect ) => T ) => T;
 	};
+	blocks?: {
+		getBlockType?: (
+			name: string
+		) => { title?: string } | null | undefined;
+		__experimentalGetBlockLabel?: (
+			blockType: unknown,
+			attributes: Record< string, unknown >,
+			context?: string
+		) => string;
+	};
+}
+
+/** A block as `core/block-editor` stores it. */
+export interface EditorBlock {
+	clientId: string;
+	name: string;
+	attributes?: Record< string, unknown >;
 }
 
 /** The few `core/editor` selectors the sidebar reads. */
@@ -44,7 +62,12 @@ export interface EditorSelectors {
 /** The few `core/block-editor` selectors the sidebar reads. */
 export interface BlockEditorSelectors {
 	getSelectedBlockClientId?: () => string | null | undefined;
-	getBlock?: ( clientId: string ) => { name?: string } | null | undefined;
+	getBlock?: ( clientId: string ) => EditorBlock | null | undefined;
+	/**
+	 * Inner blocks, including those a controller such as a synced pattern
+	 * owns, which `getBlock()` reports as having no children.
+	 */
+	getBlocks?: ( rootClientId?: string ) => EditorBlock[] | undefined;
 }
 
 interface EditorSelect {

@@ -54,15 +54,16 @@ function agentic_editor_chat_max_tool_rounds() {
  * with the site's connector, so the endpoint bounds its size and rate itself.
  * A limit of 0 turns that limit off.
  *
- * @return array{max_body_bytes: int, max_messages: int, max_tools: int, max_context_chars: int, requests_per_minute: int}
+ * @return array{max_body_bytes: int, max_messages: int, max_tools: int, max_context_chars: int, max_attachment_chars: int, requests_per_minute: int}
  */
 function agentic_editor_chat_limits() {
 	$defaults = array(
-		'max_body_bytes'      => MB_IN_BYTES,
-		'max_messages'        => 500,
-		'max_tools'           => 128,
-		'max_context_chars'   => 2000,
-		'requests_per_minute' => 60,
+		'max_body_bytes'       => MB_IN_BYTES,
+		'max_messages'         => 500,
+		'max_tools'            => 128,
+		'max_context_chars'    => 2000,
+		'max_attachment_chars' => 8000,
+		'requests_per_minute'  => 60,
 	);
 
 	$filtered = apply_filters( 'agentic_editor_chat_limits', $defaults );
@@ -73,11 +74,12 @@ function agentic_editor_chat_limits() {
 	};
 
 	return array(
-		'max_body_bytes'      => $limit( 'max_body_bytes' ),
-		'max_messages'        => $limit( 'max_messages' ),
-		'max_tools'           => $limit( 'max_tools' ),
-		'max_context_chars'   => $limit( 'max_context_chars' ),
-		'requests_per_minute' => $limit( 'requests_per_minute' ),
+		'max_body_bytes'       => $limit( 'max_body_bytes' ),
+		'max_messages'         => $limit( 'max_messages' ),
+		'max_tools'            => $limit( 'max_tools' ),
+		'max_context_chars'    => $limit( 'max_context_chars' ),
+		'max_attachment_chars' => $limit( 'max_attachment_chars' ),
+		'requests_per_minute'  => $limit( 'requests_per_minute' ),
 	);
 }
 
@@ -261,11 +263,43 @@ function agentic_editor_chat_context_note( array $context ) {
 		$lines[] = $cap( wp_strip_all_tags( $context['notes'] ) );
 	}
 
+	if ( ! empty( $context['attachedBlock'] ) && is_array( $context['attachedBlock'] ) ) {
+		$lines[] = agentic_editor_chat_attached_block_note( $context['attachedBlock'] );
+	}
+
 	if ( empty( $lines ) ) {
 		return '';
 	}
 
 	return "<page_context>\n" . implode( "\n", $lines ) . "\n</page_context>";
+}
+
+/**
+ * Describe the block the user attached by selecting it in the editor.
+ *
+ * The block travels as JSON so its markup survives for the model to edit, with
+ * every `<` and `>` escaped, so content cannot close the surrounding tags. A
+ * block too large to send is named instead, for the model to read with a tool.
+ *
+ * @param array<mixed, mixed> $block Block supplied by the client.
+ * @return string
+ */
+function agentic_editor_chat_attached_block_note( array $block ) {
+	$client_id = isset( $block['clientId'] ) && is_string( $block['clientId'] ) ? sanitize_text_field( $block['clientId'] ) : '';
+	$name      = isset( $block['name'] ) && is_string( $block['name'] ) ? sanitize_text_field( $block['name'] ) : 'block';
+
+	$intro = 'The user attached the ' . $name . ' block' . ( '' !== $client_id ? ' with client ID ' . $client_id : '' ) . ' by selecting it, so their message is about that block.';
+
+	$max_chars = agentic_editor_chat_limits()['max_attachment_chars'];
+	$json      = wp_json_encode( $block, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+
+	if ( false === $json || ( $max_chars && mb_strlen( $json ) > $max_chars ) ) {
+		return $intro . ' It is too large to include here; read it with a tool by that client ID before changing it.';
+	}
+
+	$truncated = ! empty( $block['truncated'] ) ? ' Its deeper inner blocks were left out; read them with a tool if the request needs them.' : '';
+
+	return $intro . ' Work from its contents below and act on it by that client ID. Read the rest of the post only if the request needs more than this block.' . $truncated . "\n<attached_block>\n" . $json . "\n</attached_block>";
 }
 
 /**

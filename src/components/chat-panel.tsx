@@ -2,8 +2,9 @@
  * The chat panel.
  *
  * The same panel mounts into a block editor PluginSidebar and into a standalone
- * admin screen, so nothing here may assume the editor is present. Page context
- * and starter prompts are the only things a mount supplies.
+ * admin screen, so nothing here may assume the editor is present. Page context,
+ * an optional attachment and starter prompts are the only things a mount
+ * supplies.
  */
 
 import * as React from 'react';
@@ -12,10 +13,12 @@ import {
 	CircleCheckIcon,
 	CircleStopIcon,
 	MessageSquareIcon,
+	PaperclipIcon,
 	SendIcon,
 	SquareIcon,
 	Trash2Icon,
 	TriangleAlertIcon,
+	XIcon,
 } from 'lucide-react';
 import { chatConfig } from '@agentic-editor/chat-config';
 import { listTools, onToolsChanged } from '@agentic-editor/webmcp-tools';
@@ -137,9 +140,29 @@ function useToolNames(): string[] {
 	return names;
 }
 
+/**
+ * Something on the page the next message is about, such as the selected block.
+ * The mount decides when there is one; the panel shows it and sends it.
+ */
+export interface ChatAttachment {
+	/** Identifies the attached thing, so a new attachment is noticed. */
+	id: string;
+	/** Short description shown in the composer and the transcript. */
+	label: string;
+	/**
+	 * Context merged into the page context, read on every round of a reply
+	 * so it describes the attached thing as it is now.
+	 */
+	getContext: () => Record< string, unknown >;
+}
+
 export interface ChatPanelProps {
 	/** Page context sent with the user's latest message, read at send time. */
 	getContext?: () => Record< string, unknown >;
+	/** Attached to each message sent while it is set. */
+	attachment?: ChatAttachment | null;
+	/** Called when the user removes the attachment. */
+	onClearAttachment?: () => void;
 	/** Starter prompts shown on the empty state. */
 	suggestions?: string[];
 	className?: string;
@@ -147,6 +170,8 @@ export interface ChatPanelProps {
 
 export function ChatPanel( {
 	getContext,
+	attachment = null,
+	onClearAttachment,
 	suggestions = [],
 	className,
 }: ChatPanelProps ) {
@@ -157,10 +182,20 @@ export function ChatPanel( {
 	const contextRef = React.useRef( getContext );
 	contextRef.current = getContext;
 
+	/*
+	 * The attachment a reply was sent with, not the current one: the selection
+	 * can change while the reply runs, and a tool may be what changed it, but
+	 * the reply is still about what the user attached.
+	 */
+	const sentAttachmentRef = React.useRef< ChatAttachment | null >( null );
+
 	const transport = React.useMemo(
 		() =>
 			new WordPressAiTransport( {
-				getContext: () => contextRef.current?.() ?? {},
+				getContext: () => ( {
+					...( contextRef.current?.() ?? {} ),
+					...( sentAttachmentRef.current?.getContext() ?? {} ),
+				} ),
 			} ),
 		[]
 	);
@@ -234,16 +269,29 @@ export function ChatPanel( {
 		[ transport ]
 	);
 
+	const send = React.useCallback(
+		( text: string ) => {
+			sentAttachmentRef.current = attachment;
+			clearError();
+			setEnding( null );
+			void sendMessage( {
+				text,
+				metadata: attachment
+					? { attachment: { label: attachment.label } }
+					: undefined,
+			} );
+		},
+		[ attachment, clearError, sendMessage ]
+	);
+
 	const submit = React.useCallback( () => {
 		const text = input.trim();
 		if ( ! text || busy || ! canSend ) {
 			return;
 		}
 		setInput( '' );
-		clearError();
-		setEnding( null );
-		void sendMessage( { text } );
-	}, [ busy, canSend, clearError, input, sendMessage ] );
+		send( text );
+	}, [ busy, canSend, input, send ] );
 
 	const lastMessage = messages.at( -1 );
 	const shownEnding =
@@ -275,11 +323,7 @@ export function ChatPanel( {
 					<EmptyState
 						suggestions={ suggestions }
 						disabled={ ! canSend }
-						onPick={ ( suggestion ) => {
-							clearError();
-							setEnding( null );
-							void sendMessage( { text: suggestion } );
-						} }
+						onPick={ send }
 					/>
 				) }
 
@@ -332,6 +376,13 @@ export function ChatPanel( {
 					submit();
 				} }
 			>
+				{ attachment && (
+					<AttachmentChip
+						label={ attachment.label }
+						onClear={ onClearAttachment }
+					/>
+				) }
+
 				<Textarea
 					ref={ inputRef }
 					rows={ 3 }
@@ -460,11 +511,50 @@ function ChatMessage( {
 					return null;
 				} ) }
 
+				{ isUser && message.metadata?.attachment && (
+					<MessageFooter className="gap-1">
+						<PaperclipIcon className="size-3" />
+						{ message.metadata.attachment.label }
+					</MessageFooter>
+				) }
+
 				{ attribution && (
 					<MessageFooter>{ attribution }</MessageFooter>
 				) }
 			</MessageContent>
 		</Message>
+	);
+}
+
+function AttachmentChip( {
+	label,
+	onClear,
+}: {
+	label: string;
+	onClear?: () => void;
+} ) {
+	return (
+		<div className="flex min-w-0 items-center gap-1.5 self-start rounded-md border border-border bg-muted py-0.5 pr-0.5 pl-2 text-xs text-muted-foreground">
+			<PaperclipIcon className="size-3 shrink-0" />
+			<span className="shrink-0 font-medium text-foreground">
+				Attached
+			</span>
+			<span className="truncate" title={ label }>
+				{ label }
+			</span>
+			{ onClear && (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Remove attached block"
+					title="Remove attached block"
+					onClick={ onClear }
+				>
+					<XIcon />
+				</Button>
+			) }
+		</div>
 	);
 }
 
