@@ -65,11 +65,43 @@ export function Markdown( { text }: { text: string } ) {
 			);
 		}
 
+		if ( block.type === 'heading' ) {
+			// Replies sit inside a narrow panel, so every level is a bold
+			// line rather than an admin-sized heading.
+			return (
+				<p
+					key={ id }
+					className="font-semibold"
+					role="heading"
+					aria-level={ block.level }
+				>
+					{ renderInline( block.content, id ) }
+				</p>
+			);
+		}
+
+		if ( block.type === 'quote' ) {
+			return (
+				<blockquote
+					key={ id }
+					className="border-l-2 border-border pl-3 text-muted-foreground"
+				>
+					{ block.lines.map( ( line, index ) => (
+						<React.Fragment key={ index }>
+							{ index > 0 && <br /> }
+							{ renderInline( line, `${ id }-${ index }` ) }
+						</React.Fragment>
+					) ) }
+				</blockquote>
+			);
+		}
+
 		if ( block.type === 'list' ) {
 			const List = block.ordered ? 'ol' : 'ul';
 			return (
 				<List
 					key={ id }
+					start={ block.start }
 					className={
 						block.ordered
 							? 'list-decimal space-y-1 pl-5'
