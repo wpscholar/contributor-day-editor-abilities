@@ -13,7 +13,6 @@
 import '@/styles/chat.css';
 
 import { ChatPanel } from '@/components/chat-panel';
-import { waitFor } from '@/lib/wp';
 
 const SIDEBAR_NAME = 'agentic-editor-chat';
 
@@ -30,7 +29,7 @@ function getEditorContext(): Record< string, unknown > {
 	try {
 		const editor = select( 'core/editor' );
 		const postType = editor?.getCurrentPostType?.();
-		const title = editor?.getEditedPostAttribute?.( 'title' as never );
+		const title = editor?.getEditedPostAttribute?.( 'title' );
 
 		if ( postType ) {
 			notes.push( `The user is editing a "${ postType }".` );
@@ -43,8 +42,7 @@ function getEditorContext(): Record< string, unknown > {
 		const selectedId = blockEditor?.getSelectedBlockClientId?.();
 
 		if ( selectedId ) {
-			const block = blockEditor.getBlock?.( selectedId as never ) as
-				{ name?: string } | undefined;
+			const block = blockEditor?.getBlock?.( selectedId );
 
 			if ( block ) {
 				notes.push(
@@ -68,15 +66,15 @@ const SUGGESTIONS = [
 	'Add a two-column layout below the first paragraph.',
 ];
 
-async function registerChatSidebar() {
-	const wp = await waitFor( () =>
-		window.wp?.plugins?.registerPlugin &&
-		( window.wp.editor?.PluginSidebar || window.wp.editPost?.PluginSidebar )
-			? window.wp
-			: null
-	);
+function registerChatSidebar() {
+	// Classic scripts all run before this deferred module, so what is not
+	// here now was never enqueued; see src/lib/wp.ts.
+	const wp = window.wp;
 
-	if ( ! wp ) {
+	if (
+		! wp?.plugins?.registerPlugin ||
+		! ( wp.editor?.PluginSidebar || wp.editPost?.PluginSidebar )
+	) {
 		console.warn(
 			'[agentic-editor] The block editor sidebar API is unavailable, so the chat sidebar was not added.'
 		);
@@ -86,7 +84,7 @@ async function registerChatSidebar() {
 	const PluginSidebar = ( wp.editor?.PluginSidebar ??
 		wp.editPost?.PluginSidebar )!;
 
-	wp.plugins!.registerPlugin( SIDEBAR_NAME, {
+	wp.plugins.registerPlugin( SIDEBAR_NAME, {
 		render: () => (
 			<PluginSidebar
 				name={ SIDEBAR_NAME }
@@ -103,9 +101,11 @@ async function registerChatSidebar() {
 	} );
 }
 
-registerChatSidebar().catch( ( error ) => {
+try {
+	registerChatSidebar();
+} catch ( error ) {
 	console.error(
 		'[agentic-editor] Failed to register the chat sidebar:',
 		error
 	);
-} );
+}

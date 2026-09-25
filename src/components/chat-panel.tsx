@@ -43,6 +43,22 @@ import { WordPressAiTransport, type ChatUIMessage } from '@/chat/transport';
 const SUGGESTIONS_LIMIT = 3;
 
 /**
+ * The text of the assistant's latest finished reply, for screen readers.
+ *
+ * @param messages Transcript.
+ */
+function latestReply( messages: ChatUIMessage[] ): string {
+	const last = messages.at( -1 );
+	if ( last?.role !== 'assistant' ) {
+		return '';
+	}
+	return last.parts
+		.filter( ( part ) => part.type === 'text' )
+		.map( ( part ) => part.text )
+		.join( ' ' );
+}
+
+/**
  * What the assistant is doing while a reply is in progress, from the last
  * thing in the transcript. The endpoint answers each round in one piece, so
  * without this the panel would look idle between rounds.
@@ -201,7 +217,12 @@ export function ChatPanel( {
 		>
 			{ ! chatConfig.available && <ConnectorNotice /> }
 
-			<ChatScroller>
+			<ChatScroller
+				followKey={
+					messages.filter( ( message ) => message.role === 'user' )
+						.length
+				}
+			>
 				{ messages.length === 0 && (
 					<EmptyState
 						suggestions={ suggestions }
@@ -244,6 +265,10 @@ export function ChatPanel( {
 					</Message>
 				) }
 			</ChatScroller>
+
+			<p className="sr-only" aria-live="polite">
+				{ status === 'ready' ? latestReply( messages ) : '' }
+			</p>
 
 			<form
 				className="flex flex-col gap-2 border-t border-border bg-background p-3"

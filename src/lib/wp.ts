@@ -1,9 +1,10 @@
 /**
  * The bits of the WordPress global this bundle reads.
  *
- * These are classic scripts (`wp-plugins`, `wp-editor`, …), which execute
- * before deferred script modules, so they are present by the time this runs —
- * as long as PHP actually enqueued them for the screen.
+ * These are classic scripts (`wp-plugins`, `wp-editor`, …). Script modules are
+ * deferred, so they run after every classic script on the page, footer ones
+ * included: if PHP enqueued them, they are already here, and there is nothing
+ * to wait for.
  */
 
 import type * as React from 'react';
@@ -30,44 +31,29 @@ export interface WordPressGlobal {
 		PluginSidebar?: React.ComponentType< PluginSidebarProps >;
 	};
 	data?: {
-		select: (
-			store: string
-		) => Record< string, ( ...args: never[] ) => unknown >;
+		select: EditorSelect;
 	};
+}
+
+/** The few `core/editor` selectors the sidebar reads. */
+export interface EditorSelectors {
+	getCurrentPostType?: () => string | null | undefined;
+	getEditedPostAttribute?: ( attribute: string ) => unknown;
+}
+
+/** The few `core/block-editor` selectors the sidebar reads. */
+export interface BlockEditorSelectors {
+	getSelectedBlockClientId?: () => string | null | undefined;
+	getBlock?: ( clientId: string ) => { name?: string } | null | undefined;
+}
+
+interface EditorSelect {
+	( store: 'core/editor' ): EditorSelectors | undefined;
+	( store: 'core/block-editor' ): BlockEditorSelectors | undefined;
 }
 
 declare global {
 	interface Window {
 		wp?: WordPressGlobal;
 	}
-}
-
-/**
- * Wait for something on the page to become available.
- *
- * @param check     Returns a truthy value once ready.
- * @param timeoutMs How long to keep looking.
- */
-export function waitFor< T >(
-	check: () => T | null | undefined,
-	timeoutMs = 5000
-): Promise< T | null > {
-	return new Promise( ( resolve ) => {
-		const started = Date.now();
-
-		const poll = () => {
-			const value = check();
-			if ( value ) {
-				resolve( value );
-				return;
-			}
-			if ( Date.now() - started >= timeoutMs ) {
-				resolve( null );
-				return;
-			}
-			window.setTimeout( poll, 50 );
-		};
-
-		poll();
-	} );
 }

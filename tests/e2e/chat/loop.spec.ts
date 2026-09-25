@@ -127,13 +127,13 @@ test.describe( 'chat loop', () => {
 
 		// The tool has run and the second round is waiting on the model.
 		await expect(
-			panel.getByText( 'Done', { exact: true } )
+			panel.getByRole( 'log' ).getByText( 'Done', { exact: true } )
 		).toBeVisible();
 		await expect( panel.getByRole( 'status' ) ).toHaveText( 'Thinking…' );
 
 		release();
 		await expect(
-			panel.getByText( 'empty', { exact: true } )
+			panel.getByRole( 'log' ).getByText( 'empty', { exact: true } )
 		).toHaveJSProperty( 'tagName', 'STRONG' );
 		await expect( panel.getByRole( 'status' ) ).toHaveCount( 0 );
 
@@ -169,7 +169,9 @@ test.describe( 'chat loop', () => {
 		);
 		await panel.getByRole( 'button', { name: 'Deny' } ).click();
 
-		await expect( panel.getByText( 'Understood.' ) ).toBeVisible();
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Understood.' )
+		).toBeVisible();
 		expect( bodies[ 1 ].messages.at( -1 ).responses[ 0 ].response ).toEqual(
 			{
 				error: 'Not run: the user declined this action.',
@@ -195,7 +197,9 @@ test.describe( 'chat loop', () => {
 		await panel.getByRole( 'button', { name: 'Send' } ).click();
 
 		await expect(
-			panel.getByText( 'The AI provider could not answer.' )
+			panel
+				.getByRole( 'log' )
+				.getByText( 'The AI provider could not answer.' )
 		).toBeVisible();
 		await expect( panel.getByLabel( 'Message' ) ).toHaveValue(
 			'Hello there'
@@ -222,5 +226,49 @@ test.describe( 'chat loop', () => {
 				name: 'What can you help me with here?',
 			} )
 		).toBeDisabled();
+	} );
+
+	test( 'follows a new message after the reader scrolled up, and announces the reply', async ( {
+		page,
+	} ) => {
+		const long = Array.from(
+			{ length: 60 },
+			( _, line ) => `Line ${ line + 1 }`
+		).join( '\n\n' );
+		await fakeChat( page, [
+			textTurn( long ),
+			textTurn( 'Short answer.' ),
+		] );
+		await pretendConnector( page );
+		await page.goto( '/wp-admin/tools.php?page=agentic-editor-chat' );
+		const panel = page.locator( '#agentic-editor-chat-root' );
+		const log = panel.getByRole( 'log' );
+
+		await panel.getByLabel( 'Message' ).fill( 'Long, please.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Line 60' )
+		).toBeVisible();
+
+		await log.evaluate( ( element ) => {
+			element.scrollTop = 0;
+			element.dispatchEvent( new Event( 'scroll' ) );
+		} );
+		await expect(
+			panel.getByRole( 'button', { name: 'Jump to latest' } )
+		).toBeVisible();
+
+		await panel.getByLabel( 'Message' ).fill( 'Now short.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Short answer.' )
+		).toBeInViewport();
+		await expect(
+			panel.getByRole( 'button', { name: 'Jump to latest' } )
+		).toHaveCount( 0 );
+
+		await expect( panel.locator( 'p.sr-only' ) ).toHaveText(
+			'Short answer.'
+		);
 	} );
 } );
