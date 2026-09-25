@@ -156,6 +156,20 @@ export interface ChatAttachment {
 	getContext: () => Record< string, unknown >;
 }
 
+/** The paperclip, for a mount that lets the user choose what to attach. */
+export interface ChatAttachControl {
+	/** Accessible name of the paperclip. */
+	label: string;
+	/** What the paperclip does, shown on hover. */
+	description: string;
+	/** Shown while the mount waits for the user to pick something. */
+	pickingLabel: string;
+	/** Whether the mount is waiting for the user to pick something. */
+	picking: boolean;
+	/** Start attaching, or stop waiting for a pick. */
+	onToggle: () => void;
+}
+
 export interface ChatPanelProps {
 	/** Page context sent with the user's latest message, read at send time. */
 	getContext?: () => Record< string, unknown >;
@@ -163,6 +177,8 @@ export interface ChatPanelProps {
 	attachment?: ChatAttachment | null;
 	/** Called when the user removes the attachment. */
 	onClearAttachment?: () => void;
+	/** Shows the paperclip. Without it, nothing can be attached. */
+	attach?: ChatAttachControl;
 	/** Starter prompts shown on the empty state. */
 	suggestions?: string[];
 	className?: string;
@@ -172,6 +188,7 @@ export function ChatPanel( {
 	getContext,
 	attachment = null,
 	onClearAttachment,
+	attach,
 	suggestions = [],
 	className,
 }: ChatPanelProps ) {
@@ -183,9 +200,9 @@ export function ChatPanel( {
 	contextRef.current = getContext;
 
 	/*
-	 * The attachment a reply was sent with, not the current one: the selection
-	 * can change while the reply runs, and a tool may be what changed it, but
-	 * the reply is still about what the user attached.
+	 * The attachment a reply was sent with, not the current one: the user can
+	 * change the attachment while the reply runs, but the reply is still about
+	 * what they sent it with.
 	 */
 	const sentAttachmentRef = React.useRef< ChatAttachment | null >( null );
 
@@ -383,6 +400,16 @@ export function ChatPanel( {
 					/>
 				) }
 
+				{ attach?.picking && (
+					<p
+						aria-live="polite"
+						className="m-0! flex items-center gap-1.5 text-xs text-muted-foreground"
+					>
+						<PaperclipIcon className="size-3 shrink-0" />
+						{ attach.pickingLabel }
+					</p>
+				) }
+
 				<Textarea
 					ref={ inputRef }
 					rows={ 3 }
@@ -411,6 +438,28 @@ export function ChatPanel( {
 				/>
 
 				<div className="flex items-center gap-2">
+					{ attach && (
+						<Button
+							type="button"
+							size="icon-sm"
+							variant={ attach.picking ? 'secondary' : 'ghost' }
+							aria-label={
+								attach.picking
+									? 'Cancel attaching'
+									: attach.label
+							}
+							aria-pressed={ attach.picking }
+							title={
+								attach.picking
+									? 'Cancel attaching'
+									: attach.description
+							}
+							onClick={ attach.onToggle }
+						>
+							<PaperclipIcon />
+						</Button>
+					) }
+
 					<ToolCount names={ toolNames } messages={ messages } />
 
 					<Button

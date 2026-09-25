@@ -33,6 +33,9 @@ export interface WordPressGlobal {
 	data?: {
 		select: EditorSelect;
 		useSelect?: < T >( mapSelect: ( select: EditorSelect ) => T ) => T;
+		dispatch?: (
+			store: 'core/block-editor'
+		) => { clearSelectedBlock?: () => void } | undefined;
 	};
 	blocks?: {
 		getBlockType?: (

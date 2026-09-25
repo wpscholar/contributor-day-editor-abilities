@@ -178,65 +178,110 @@ function describeBlock( block: EditorBlock ): string {
 }
 
 /**
- * The selected block as a chat attachment.
+ * A block the user chose to attach, with the paperclip.
  *
- * It stays attached while the block stays selected. Removing it hides it
- * until a different block is selected, and deselecting starts over.
+ * Nothing is attached until they ask: people usually click a block before
+ * opening the chat, so the selection alone says little about what the next
+ * message is about. The paperclip attaches the selected block, or, when none
+ * is selected or it is already attached, the next block the user clicks. Once
+ * attached, a block stays until it is removed or deleted from the post.
  */
-function useSelectedBlockAttachment(): {
+function useBlockAttachment(): {
 	attachment: ChatAttachment | null;
+	picking: boolean;
+	attach: () => void;
 	clear: () => void;
 } {
 	// registerChatSidebar() checked for it before mounting this.
 	const useSelect = window.wp!.data!.useSelect!;
-	const selected = useSelect( ( select ) => {
-		const store = select( 'core/block-editor' );
-		const clientId = store?.getSelectedBlockClientId?.();
-		const block = clientId ? store?.getBlock?.( clientId ) : null;
-		// A string, so an unrelated store change does not re-render.
-		return block ? `${ block.clientId }\n${ describeBlock( block ) }` : '';
-	} );
 
-	const [ dismissedId, setDismissedId ] = React.useState< string | null >(
+	const [ attachedId, setAttachedId ] = React.useState< string | null >(
 		null
 	);
+	const [ picking, setPicking ] = React.useState( false );
 
-	const [ clientId = '', label = '' ] = selected.split( '\n' );
+	const selectedId = useSelect(
+		( select ) =>
+			select( 'core/block-editor' )?.getSelectedBlockClientId?.() ?? ''
+	);
 
+	// A string, so an unrelated store change does not re-render. Empty once
+	// the block is gone.
+	const label = useSelect( ( select ) => {
+		const block = attachedId
+			? select( 'core/block-editor' )?.getBlock?.( attachedId )
+			: null;
+		return block ? describeBlock( block ) : '';
+	} );
+
+	// Picking starts with nothing selected, so any selection is the pick.
 	React.useEffect( () => {
-		if ( ! clientId ) {
-			setDismissedId( null );
+		if ( picking && selectedId ) {
+			setAttachedId( selectedId );
+			setPicking( false );
 		}
-	}, [ clientId ] );
+	}, [ picking, selectedId ] );
+
+	// A deleted block has nothing left to attach.
+	React.useEffect( () => {
+		if ( attachedId && ! label ) {
+			setAttachedId( null );
+		}
+	}, [ attachedId, label ] );
+
+	const attach = React.useCallback( () => {
+		if ( picking ) {
+			setPicking( false );
+			return;
+		}
+		if ( selectedId && selectedId !== attachedId ) {
+			setAttachedId( selectedId );
+			return;
+		}
+		// Clear the selection so that clicking even the selected block
+		// counts as picking it.
+		window.wp?.data
+			?.dispatch?.( 'core/block-editor' )
+			?.clearSelectedBlock?.();
+		setPicking( true );
+	}, [ attachedId, picking, selectedId ] );
+
+	const clear = React.useCallback( () => {
+		setAttachedId( null );
+		setPicking( false );
+	}, [] );
 
 	const attachment = React.useMemo< ChatAttachment | null >(
 		() =>
-			clientId && clientId !== dismissedId
+			attachedId && label
 				? {
-						id: clientId,
+						id: attachedId,
 						label,
-						getContext: () => getAttachedBlockContext( clientId ),
+						getContext: () => getAttachedBlockContext( attachedId ),
 					}
 				: null,
-		[ clientId, dismissedId, label ]
+		[ attachedId, label ]
 	);
 
-	const clear = React.useCallback(
-		() => setDismissedId( clientId || null ),
-		[ clientId ]
-	);
-
-	return { attachment, clear };
+	return { attachment, picking, attach, clear };
 }
 
 function ChatSidebar() {
-	const { attachment, clear } = useSelectedBlockAttachment();
+	const { attachment, picking, attach, clear } = useBlockAttachment();
 
 	return (
 		<ChatPanel
 			getContext={ getEditorContext }
 			attachment={ attachment }
 			onClearAttachment={ clear }
+			attach={ {
+				label: 'Attach a block',
+				description:
+					'Attach the selected block, or the next block you click',
+				pickingLabel: 'Click a block in the editor to attach it…',
+				picking,
+				onToggle: attach,
+			} }
 			suggestions={ SUGGESTIONS }
 		/>
 	);

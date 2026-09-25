@@ -346,7 +346,7 @@ test.describe( 'chat loop', () => {
 	} );
 } );
 
-test.describe( 'selected block attachment', () => {
+test.describe( 'block attachment', () => {
 	/** Insert two paragraphs and return their client IDs. */
 	async function insertParagraphs( page: Page ): Promise< string[] > {
 		return page.evaluate( () => {
@@ -377,7 +377,7 @@ test.describe( 'selected block attachment', () => {
 		}, clientId );
 	}
 
-	test( 'attaches the selected block until it is removed or deselected', async ( {
+	test( 'attaches only when asked, then keeps the block until it is removed', async ( {
 		page,
 	} ) => {
 		const bodies = await fakeChat( page, [
@@ -389,55 +389,102 @@ test.describe( 'selected block attachment', () => {
 		await openEditor( page );
 		const [ first, second ] = await insertParagraphs( page );
 		const panel = await openSidebar( page );
+		const log = panel.getByRole( 'log' );
 		const chip = panel.getByText( 'Attached', { exact: true } );
-		const remove = panel.getByRole( 'button', {
-			name: 'Remove attached block',
+		const paperclip = panel.getByRole( 'button', {
+			name: 'Attach a block',
 		} );
 
-		await selectBlock( page, null );
-		await expect( chip ).toBeHidden();
+		async function sendMessage( text: string, reply: string ) {
+			await panel.getByLabel( 'Message' ).fill( text );
+			await panel.getByRole( 'button', { name: 'Send' } ).click();
+			await expect( log.getByText( reply ) ).toBeVisible();
+		}
 
-		await selectBlock( page, first );
-		await expect( chip ).toBeVisible();
+		const canvas = page.frameLocator( 'iframe[name="editor-canvas"]' );
+
+		// A selected block is not attached on its own.
+		await canvas.getByText( 'First one' ).click();
+		await expect( chip ).toBeHidden();
+		await sendMessage( 'Summarize the post.', 'One.' );
+		expect( bodies[ 0 ].context.attachedBlock ).toBeUndefined();
+		expect( bodies[ 0 ].context.notes ).not.toContain( first );
+
+		// The paperclip attaches the selected block.
+		await paperclip.click();
 		await expect( panel.getByText( 'Paragraph: First one' ) ).toBeVisible();
 
-		await panel.getByLabel( 'Message' ).fill( 'Shorten this.' );
-		await panel.getByRole( 'button', { name: 'Send' } ).click();
-		await expect( panel.getByRole( 'status' ) ).toHaveText( 'Done' );
+		// Selecting another block does not change the attachment.
+		await selectBlock( page, second );
+		await expect( panel.getByText( 'Paragraph: First one' ) ).toBeVisible();
 
-		expect( bodies[ 0 ].context.attachedBlock ).toMatchObject( {
+		await sendMessage( 'Shorten this.', 'Two.' );
+		expect( bodies[ 1 ].context.attachedBlock ).toMatchObject( {
 			clientId: first,
 			name: 'core/paragraph',
 			attributes: { content: 'First <b>one</b>' },
 		} );
-		expect( bodies[ 0 ].context.notes ).not.toContain( first );
-		// The transcript records what the message was sent with.
-		await expect(
-			panel.getByRole( 'log' ).getByText( 'Paragraph: First one' )
-		).toBeVisible();
-		// The attachment stays for the next turn while the block is selected.
-		await expect( chip ).toBeVisible();
+		await expect( log.getByText( 'Paragraph: First one' ) ).toBeVisible();
 
-		// Removing it stays removed while the same block is selected.
-		await remove.click();
-		await expect( chip ).toBeHidden();
-		await panel.getByLabel( 'Message' ).fill( 'Summarize the post.' );
-		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		// With the attached block selected, the paperclip waits for a click,
+		// and the next block picked replaces the attachment.
+		await selectBlock( page, first );
+		await paperclip.click();
 		await expect(
-			panel.getByRole( 'log' ).getByText( 'Two.' )
+			panel.getByText( 'Click a block in the editor to attach it…' )
 		).toBeVisible();
-		expect( bodies[ 1 ].context.attachedBlock ).toBeUndefined();
-
-		// A different block attaches again.
-		await selectBlock( page, second );
+		await canvas.getByText( 'Second one' ).click();
 		await expect(
 			panel.getByText( 'Paragraph: Second one' )
 		).toBeVisible();
-		await panel.getByLabel( 'Message' ).fill( 'And this?' );
-		await panel.getByRole( 'button', { name: 'Send' } ).click();
 		await expect(
-			panel.getByRole( 'log' ).getByText( 'Three.' )
-		).toBeVisible();
-		expect( bodies[ 2 ].context.attachedBlock.clientId ).toBe( second );
+			panel.getByText( 'Click a block in the editor to attach it…' )
+		).toBeHidden();
+
+		// Removed, it is not sent.
+		await panel
+			.getByRole( 'button', { name: 'Remove attached block' } )
+			.click();
+		await expect( chip ).toBeHidden();
+		await sendMessage( 'Anything else?', 'Three.' );
+		expect( bodies[ 2 ].context.attachedBlock ).toBeUndefined();
+	} );
+
+	test( 'the paperclip waits for a block when none is selected', async ( {
+		page,
+	} ) => {
+		await pretendConnector( page );
+		await openEditor( page );
+		const [ first ] = await insertParagraphs( page );
+		const panel = await openSidebar( page );
+		await selectBlock( page, null );
+
+		await panel.getByRole( 'button', { name: 'Attach a block' } ).click();
+		const cancel = panel.getByRole( 'button', {
+			name: 'Cancel attaching',
+		} );
+		await expect( cancel ).toHaveAttribute( 'aria-pressed', 'true' );
+
+		// Cancelling stops waiting: a later selection attaches nothing.
+		await cancel.click();
+		await selectBlock( page, first );
+		await expect(
+			panel.getByText( 'Attached', { exact: true } )
+		).toBeHidden();
+
+		await selectBlock( page, null );
+		await panel.getByRole( 'button', { name: 'Attach a block' } ).click();
+		await selectBlock( page, first );
+		await expect( panel.getByText( 'Paragraph: First one' ) ).toBeVisible();
+
+		// Deleting the block drops the attachment.
+		await page.evaluate( ( id ) => {
+			( window as any ).wp.data
+				.dispatch( 'core/block-editor' )
+				.removeBlock( id );
+		}, first );
+		await expect(
+			panel.getByText( 'Attached', { exact: true } )
+		).toBeHidden();
 	} );
 } );

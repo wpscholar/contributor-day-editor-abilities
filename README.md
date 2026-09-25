@@ -126,7 +126,7 @@ Tool calls run without asking, since editor undo reverts them, except for three 
 
 `getContext` is read on every send. Its `screen` and `notes` are attached to the user's latest message as page context, not to the system instruction, since they can quote content other people wrote.
 
-In the editor, selecting a block attaches it: the composer shows **Attached** with the block's name, and each message sent while it shows carries the block itself (`context.attachedBlock`: client ID, name, attributes and inner blocks), so the assistant starts from that block instead of reading the whole post. It stays attached while the block stays selected. Removing it with **×**, or selecting nothing, sends no selection at all, and the assistant reads the post however it normally would. Another mount can do the same by passing `attachment` and `onClearAttachment` to `<ChatPanel />`.
+In the editor, the paperclip next to **Send** attaches a block. It attaches the selected block, or, when nothing is selected (or the selected block is already attached), the next block you click. Nothing is attached until you ask, since the block you clicked before opening the chat is not necessarily the one you mean. While a block shows as **Attached**, every message carries it (`context.attachedBlock`: client ID, name, attributes and inner blocks, read fresh each round), so the assistant starts from that block rather than reading the whole post. It stays until you remove it with **×** or delete the block. With nothing attached, the assistant hears nothing about the selection and reads the post however it normally would. Another mount can offer the same through `<ChatPanel />`'s `attachment`, `onClearAttachment` and `attach` props.
 
 ### Hooks
 
