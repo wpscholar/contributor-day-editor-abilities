@@ -146,14 +146,19 @@ includes/
   chat-admin-page.php      # Tools → AI Chat
 js/
   index.js                 # Entry: register abilities + bridge to WebMCP
-  abilities.js             # Client-side ability definitions (block editor store)
+  abilities.js             # Aggregates the ability modules below
+  abilities/
+    block-editor.js        # Block tree, edits, transforms, selection, undo/redo
+    patterns.js            # Pattern and synced-pattern abilities
+    shared.js              # Category, registration, store access, lock checks
   webmcp-bridge.js         # Abilities → document.modelContext.registerTool
-  webmcp-polyfill.js       # Installs the polyfill when the browser has no WebMCP
+  webmcp-polyfill.js       # Reports on the WebMCP environment; installs nothing
   webmcp-tools.js          # Consumer side: list and call the page's tools
   chat/config.js           # Server config, read from the script module data tag
   vendor/webmcp-polyfill/  # Vendored standalone build of @mcp-b/webmcp-polyfill
 src/                       # The chat panel (built with Vite into build/)
   chat/transport.ts        # AI SDK ChatTransport: one REST turn per round + tool loop
+  chat/approval.ts         # Which tool calls wait for Approve/Deny
   components/
     chat-panel.tsx         # The panel: useChat, transcript, composer
     chat-scroller.tsx      # Transcript scrolling that follows without hijacking
@@ -162,11 +167,16 @@ src/                       # The chat panel (built with Vite into build/)
     ui/                    # shadcn components
   entries/                 # One per mount: editor sidebar, standalone screen
   lib/shims/               # react / react-dom / jsx-runtime → WordPress globals
+  lib/wp.ts                # Typed window.wp access for the editor entry
   styles/chat.css          # Tailwind (no Preflight) + tokens scoped to .cdchat
 css/chat-chrome.css        # Layout for the wp-admin containers around the panel
 vite.config.ts
 bin/build-zip.sh           # Builds a distributable plugin zip
 bin/vendor-webmcp-polyfill.sh
+bin/blueprints/            # Playground blueprints (the Google connector for start:ai)
+tests/
+  e2e/                     # Playwright against Playground
+  phpunit/                 # PHPUnit unit tests for the chat endpoint
 ```
 
 Two layers with different build stories. Everything under `js/` is hand-written native ESM resolved through WordPress import maps (`@wordpress/abilities`, `@agentic-editor/*`) with no build step. The chat panel under `src/` is compiled, but keeps `@agentic-editor/webmcp-tools` and `@agentic-editor/chat-config` as import-map externals rather than bundling them — the tool layer has to be the *same* module instance the ability bridge registered into, or the chat would see an empty tool registry.

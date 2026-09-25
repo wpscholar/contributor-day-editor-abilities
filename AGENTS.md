@@ -28,22 +28,34 @@ Two goals:
 | `includes/chat-assets.php` | Script module registration, polyfill script, per-screen config |
 | `includes/chat-admin-page.php` | Tools → AI Chat |
 | `js/index.js` | Bootstrap: abilities → WebMCP bridge; sets `window.agenticEditorAbilities` |
-| `js/abilities.js` | `registerAbility` / category; talks to `core/block-editor` via `wp.data` |
+| `js/abilities.js` | Aggregates the ability modules into one `registerEditorAbilities()` |
+| `js/abilities/block-editor.js` | Block tree, insert/move/update/remove, transforms, selection, undo/redo |
+| `js/abilities/patterns.js` | Pattern and synced-pattern abilities |
+| `js/abilities/shared.js` | Category, `ensureAbility`, store access, lock and nesting checks |
 | `js/webmcp-bridge.js` | Maps abilities to WebMCP tools; feature-detects `document.modelContext` |
 | `js/webmcp-polyfill.js` | Reports on the WebMCP environment; installs nothing |
 | `js/webmcp-tools.js` | Consumer side: list and call the page's tools |
 | `js/chat/config.js` | Reads the server config JSON; the only hand-written chat module left |
+| `js/types/globals.d.ts` | Loose types for the WordPress and WebMCP globals, for `checkJs` |
 | `vite.config.ts` | Build: React aliased to WordPress globals, two entries, one stylesheet |
 | `src/lib/shims/*` | Re-export `window.React` / `ReactDOM` / `ReactJSXRuntime` as ES modules |
 | `src/chat/transport.ts` | The AI SDK `ChatTransport`: one REST turn per round plus the tool loop |
 | `src/chat/transport.test.ts` | Vitest coverage of the tool loop; `vitest.config.ts` stubs the import-map externals |
-| `tests/phpunit/` | PHPUnit coverage of `chat-rest.php`: Brain Monkey for WordPress functions, the real AI Client DTOs |
+| `src/chat/approval.ts` | Which tool calls wait for Approve/Deny |
 | `src/components/chat-panel.tsx` | The panel: `useChat`, transcript, composer |
+| `src/components/tool-call.tsx` | One tool call inline in the assistant turn, with its approval buttons |
+| `src/components/markdown.tsx` | Model output → React elements; never `dangerouslySetInnerHTML` |
+| `src/lib/wp.ts` | Typed access to `window.wp` for the editor entry |
 | `src/components/ui/*` | shadcn components — regenerate with the CLI, don't hand-edit |
 | `src/entries/*.tsx` | The two mounts (editor sidebar, standalone screen) |
 | `css/chat-chrome.css` | Layout for the wp-admin containers *around* the panel |
 | `bin/build-zip.sh` | Packaging; runs `npm run build` and strips source maps |
 | `bin/vendor-webmcp-polyfill.sh` | Re-copies the vendored polyfill from `node_modules` |
+| `bin/blueprints/` | Playground blueprints; `install-google-connector.json` backs `npm run start:ai` |
+| `tests/e2e/` | Playwright against Playground: abilities, bridge, chat REST, panel, permissions |
+| `tests/phpunit/` | PHPUnit coverage of `chat-rest.php`: Brain Monkey for WordPress functions, the real AI Client DTOs |
+| `eslint.config.mjs`, `phpcs.xml.dist`, `phpstan.neon.dist` | Lint configs; see "Linting and types" |
+| `.github/workflows/` | CI (build, lint, PHPUnit, the e2e version matrix) and the release zip |
 
 ## Conventions
 
@@ -131,9 +143,12 @@ npm test             # Vitest unit tests (src/**/*.test.ts), no WordPress needed
 composer test        # PHPUnit unit tests (tests/phpunit), no WordPress needed; also npm run test:php
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
+npm run start:ai     # Same, with the Google connector; needs GOOGLE_API_KEY, and chats are billed
+npm run start:ai:reset # start:ai on a fresh site
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules
 npm run zip          # Build, then write dist/agentic-editor.zip (gitignored)
 npm run test:e2e     # Playwright against the npm start site (started if not running)
+npm run test:e2e:install # Download the Chromium Playwright uses (once per machine)
 ```
 
 To run e2e against another WordPress or PHP version, as the CI matrix does, set the version and a spare port; Playwright starts a separate site there and leaves the 9400 one alone:
@@ -193,10 +208,17 @@ After chat changes, run `npm run build` first, then:
 
 To add an ability:
 
-1. Add an `ensureAbility({ ... })` entry in `js/abilities.js` with schemas + callback
-2. Push the name onto the returned `abilityNames` array (same function)
+1. Add an `ensureAbility({ ... })` entry with schemas + callback to the module it belongs in under `js/abilities/` (`block-editor.js` or `patterns.js`)
+2. Push the name onto that module's `abilityNames` array, which its `register…Abilities()` function returns
 3. The bridge in `js/index.js` registers all returned names automatically
-4. Document the ability and WebMCP tool name in `README.md`
+4. Add the WebMCP tool name to `EXPECTED_TOOLS` in `tests/e2e/bridge.spec.ts`, which checks the exact set
+5. Document the ability and WebMCP tool name in `README.md`
+
+To add a new abilities module:
+
+1. Create `js/abilities/<name>.js` exporting `register<Name>Abilities()`, importing helpers from `@agentic-editor/abilities/shared` (the import-map ID, never a relative path)
+2. Register it in `agentic_editor_enqueue_editor_abilities()` in `agentic-editor.php` with `wp_register_script_module( '@agentic-editor/abilities/<name>', … )`, and add that ID to the dependencies of `@agentic-editor/abilities`
+3. Spread its result into `registerEditorAbilities()` in `js/abilities.js`. `tsconfig.js.json` already maps `@agentic-editor/abilities/*` for `checkJs`
 
 The chat picks up new abilities automatically — they are just more WebMCP tools.
 
