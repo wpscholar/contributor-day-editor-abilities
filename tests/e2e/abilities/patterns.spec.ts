@@ -1,4 +1,17 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures';
+
+/**
+ * Permanently delete a pattern (a `wp_block` post) a test created.
+ */
+async function deletePattern( editor: Page, id: number ) {
+	await editor.evaluate( async ( id ) => {
+		await ( window as any ).wp.apiFetch( {
+			path: `/wp/v2/blocks/${ id }?force=true`,
+			method: 'DELETE',
+		} );
+	}, id );
+}
 
 test.describe( 'patterns', () => {
 	test( 'editor/get-pattern-categories lists at least one category', async ( {
@@ -40,6 +53,7 @@ test.describe( 'patterns', () => {
 	} );
 
 	test( 'editor/create-pattern saves blocks as a pattern, and editor/insert-pattern inserts it', async ( {
+		editor,
 		callTool,
 	} ) => {
 		const title = `E2E pattern ${ Date.now() }`;
@@ -54,20 +68,26 @@ test.describe( 'patterns', () => {
 			],
 		} );
 		expect( created.isError ).toBe( false );
-		expect( created.value.title ).toBe( title );
-		expect( created.value.blockCount ).toBe( 1 );
-		expect( created.value.syncStatus ).toBe( 'unsynced' );
 
-		const inserted = await callTool( 'editor_insert-pattern', {
-			name: created.value.name,
-		} );
-		expect( inserted.isError ).toBe( false );
-		expect( inserted.value.count ).toBeGreaterThan( 0 );
+		try {
+			expect( created.value.title ).toBe( title );
+			expect( created.value.blockCount ).toBe( 1 );
+			expect( created.value.syncStatus ).toBe( 'unsynced' );
 
-		const found = await callTool( 'editor_find-editor-blocks', {
-			search: 'Saved from a test',
-		} );
-		expect( found.value.count ).toBeGreaterThan( 0 );
+			const inserted = await callTool( 'editor_insert-pattern', {
+				name: created.value.name,
+			} );
+			expect( inserted.isError ).toBe( false );
+			expect( inserted.value.count ).toBeGreaterThan( 0 );
+
+			const found = await callTool( 'editor_find-editor-blocks', {
+				search: 'Saved from a test',
+			} );
+			expect( found.value.count ).toBeGreaterThan( 0 );
+		} finally {
+			// The dev site is shared with manual testing; leave no patterns.
+			await deletePattern( editor, created.value.id );
+		}
 	} );
 
 	test( 'editor/create-pattern requires either clientIds or blocks, not both or neither', async ( {

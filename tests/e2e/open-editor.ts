@@ -9,6 +9,7 @@ export async function openEditor( page: Page, timeout = 15_000 ) {
 	await page.goto( '/wp-admin/post-new.php', { timeout } );
 
 	// A brand-new site shows the welcome guide as a modal on first load.
+	// Global setup turns it off for good; this only covers that first load.
 	await page.keyboard.press( 'Escape' );
 
 	// The abilities bridge registers tools one at a time after the editor
