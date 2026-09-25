@@ -195,13 +195,17 @@ function agentic_editor_chat_check_rate_limit() {
  * Which of these exist depends entirely on the connectors the site configured,
  * so this is a preference and never a requirement.
  *
- * @return string[]
+ * The result is spread into a variadic call, so it is always a list of
+ * strings: string keys there would be named arguments and a fatal error.
+ *
+ * @return list<string>
  */
 function agentic_editor_chat_model_preference() {
-	return (array) apply_filters(
-		'agentic_editor_chat_model_preference',
-		array( 'claude-sonnet-4-6', 'gpt-5.4', 'gemini-3.1-pro-preview' )
-	);
+	$defaults = array( 'claude-sonnet-4-6', 'gpt-5.4', 'gemini-3.1-pro-preview' );
+	$models   = apply_filters( 'agentic_editor_chat_model_preference', $defaults );
+	$models   = is_array( $models ) ? array_values( array_filter( $models, 'is_string' ) ) : array();
+
+	return empty( $models ) ? $defaults : $models;
 }
 
 /**
@@ -497,8 +501,13 @@ function agentic_editor_chat_build_declarations( array $tools, array &$tool_map 
 /**
  * Rewrite a WebMCP tool name into a name providers accept.
  *
- * WebMCP allows dots; OpenAI does not. 64 characters is the smallest limit
- * across the three official connectors.
+ * WebMCP allows dots; OpenAI does not. Gemini wants a letter or underscore
+ * first. 64 characters is the smallest limit across the three official
+ * connectors.
+ *
+ * A name that is too long, or that collides once rewritten, gets a suffix
+ * hashed from the original tool name, so the same tool keeps the same function
+ * name however many other tools the page registers.
  *
  * @param string                $tool_name Tool name.
  * @param array<string, string> $taken     Function names already in use.
@@ -512,19 +521,21 @@ function agentic_editor_chat_function_name( $tool_name, array $taken ) {
 		$name = 'tool';
 	}
 
-	if ( strlen( $name ) > 64 ) {
-		$name = substr( $name, 0, 64 );
+	if ( ! preg_match( '/^[a-zA-Z_]/', $name ) ) {
+		$name = '_' . $name;
 	}
 
-	if ( ! isset( $taken[ $name ] ) ) {
+	if ( strlen( $name ) <= 64 && ! isset( $taken[ $name ] ) ) {
 		return $name;
 	}
 
-	$suffix = 2;
+	// 55 characters, an underscore, and 8 hex digits come to 64.
+	$attempt = 0;
 	do {
-		$candidate = substr( $name, 0, 61 ) . '_' . $suffix;
-		++$suffix;
-	} while ( isset( $taken[ $candidate ] ) && $suffix < 1000 );
+		$hash      = substr( md5( 0 === $attempt ? $tool_name : $tool_name . '#' . $attempt ), 0, 8 );
+		$candidate = substr( $name, 0, 55 ) . '_' . $hash;
+		++$attempt;
+	} while ( isset( $taken[ $candidate ] ) );
 
 	return $candidate;
 }
@@ -674,7 +685,7 @@ function agentic_editor_chat_build_messages( array $messages, array $function_ma
 		try {
 			switch ( $message['role'] ) {
 				case 'user':
-					$text = isset( $message['content'] ) ? trim( (string) $message['content'] ) : '';
+					$text = isset( $message['content'] ) && is_string( $message['content'] ) ? trim( $message['content'] ) : '';
 					if ( '' === $text ) {
 						continue 2;
 					}
