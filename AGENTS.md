@@ -41,6 +41,7 @@ Two goals:
 | `src/lib/shims/*` | Re-export `window.React` / `ReactDOM` / `ReactJSXRuntime` as ES modules |
 | `src/chat/transport.ts` | The AI SDK `ChatTransport`: one REST turn per round plus the tool loop |
 | `src/chat/transport.test.ts` | Vitest coverage of the tool loop; `vitest.config.ts` stubs the import-map externals |
+| `js/*.test.js` | Vitest coverage of the WebMCP consumer and bridge. They sit beside the modules for `checkJs`, and `bin/build-zip.sh` strips them |
 | `src/chat/approval.ts` | Which tool calls wait for Approve/Deny |
 | `src/components/chat-panel.tsx` | The panel: `useChat`, transcript, composer |
 | `src/components/tool-call.tsx` | One tool call inline in the assistant turn, with its approval buttons |
@@ -139,7 +140,7 @@ npm run lint         # ESLint (WordPress rules + wp-prettier), then composer lin
 npm run format       # wp-prettier --write over JS and TS (CSS is left alone)
 composer install     # PHP tooling: PHPCS (WPCS + PHPCompatibilityWP), PHPStan
 composer lint        # phpcs, then phpstan at level 8
-npm test             # Vitest unit tests (src/**/*.test.ts), no WordPress needed
+npm test             # Vitest unit tests (src/**/*.test.ts, js/**/*.test.js), no WordPress needed
 composer test        # PHPUnit unit tests (tests/phpunit), no WordPress needed; also npm run test:php
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data

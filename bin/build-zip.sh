@@ -29,8 +29,9 @@ cp -R "${ROOT}/build" "${STAGE}/${PLUGIN_SLUG}/build"
 # Source maps are a development aid and roughly double the payload.
 find "${STAGE}/${PLUGIN_SLUG}/build" -name '*.map' -delete
 
-# Type declarations for checking js/ are development-only.
+# Type declarations and unit tests for js/ are development-only.
 rm -rf "${STAGE}/${PLUGIN_SLUG}/js/types"
+find "${STAGE}/${PLUGIN_SLUG}/js" -name '*.test.js' -delete
 
 (
 	cd "${STAGE}"
