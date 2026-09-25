@@ -99,6 +99,13 @@ test.describe( 'chat panel', () => {
 			)
 		).toBeUndefined();
 
+		// The panel fills the screen below the heading, whatever WordPress
+		// prints above it, and the composer stays on a short screen.
+		await page.setViewportSize( { width: 1280, height: 560 } );
+		await expect(
+			panel.getByRole( 'button', { name: 'Send' } )
+		).toBeInViewport();
+
 		// Tailwind's Preflight would reset admin headings; 23px is core's size.
 		await expect( page.locator( '.wrap > h1' ) ).toHaveCSS(
 			'font-size',
