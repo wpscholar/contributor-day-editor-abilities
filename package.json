@@ -18,7 +18,7 @@
     "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
-    "@mcp-b/webmcp-polyfill": "^4.0.0",
+    "@mcp-b/webmcp-polyfill": "^5.1.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.3.31",

@@ -11,19 +11,13 @@ export async function openEditor( page: Page, timeout = 15_000 ) {
 	// A brand-new site shows the welcome guide as a modal on first load.
 	await page.keyboard.press( 'Escape' );
 
-	// The abilities bridge registers tools asynchronously after the editor
-	// mounts, so wait for the WebMCP surface to actually list one.
+	// The abilities bridge registers tools one at a time after the editor
+	// mounts, and each registerTool() resolves only after its toolchange
+	// notification. Seeing one tool listed says nothing about the rest, so
+	// wait for the bridge to publish its result, which it does once every
+	// registration has settled.
 	await page.waitForFunction(
-		async () => {
-			const modelContext = ( document as any ).modelContext;
-			if ( ! modelContext?.getTools ) {
-				return false;
-			}
-			const tools = await modelContext.getTools();
-			return tools.some(
-				( tool: { name: string } ) => tool.name === 'editor_get-editor-tree'
-			);
-		},
+		() => !! ( window as any ).agenticEditorAbilities?.webmcp,
 		null,
 		{ timeout }
 	);
