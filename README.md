@@ -2,7 +2,7 @@
 
 WordPress plugin that registers **client-side block editor abilities** via [`@wordpress/abilities`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-abilities/), exposes them to browser AI agents through [WebMCP](https://developer.chrome.com/docs/ai/webmcp), and ships a chat panel that drives those tools using the site's own AI connector.
 
-Requires **WordPress 7.0+** (client-side Abilities API and AI Client).
+Requires **WordPress 7.0+** (client-side Abilities API and AI Client) and **PHP 8.0+**.
 
 ## What it does
 
@@ -191,6 +191,7 @@ The chat panel is compiled, so `npm run build` is required before it will appear
 | `npm run dev` | Rebuild the chat panel on change |
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run the Vitest unit tests |
+| `npm run test:e2e` | Run the Playwright suite against the `npm start` site. Set `WP_VERSION`, `PHP_VERSION` and `WP_PORT` to test another version on a separate site |
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |
 | `npm run vendor` | Re-copy the WebMCP polyfill from `node_modules` |

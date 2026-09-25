@@ -31,7 +31,16 @@ jobs:
         run: npm run build
 
   e2e:
+    name: e2e (WP ${{ matrix.wp }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      # One failing combination should not hide how the others fared.
+      fail-fast: false
+      matrix:
+        # Every supported WordPress and PHP version. `latest` follows each
+        # WordPress release; when a new minor ships, add the one it replaces.
+        wp: ['7.0', 'latest']
+        php: ['8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,12 +64,15 @@ jobs:
 
       - name: Run e2e tests
         run: npm run test:e2e
+        env:
+          WP_VERSION: ${{ matrix.wp }}
+          PHP_VERSION: ${{ matrix.php }}
 
       - name: Upload test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results
+          name: playwright-test-results-wp${{ matrix.wp }}-php${{ matrix.php }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore

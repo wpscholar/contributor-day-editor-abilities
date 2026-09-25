@@ -13,7 +13,7 @@ Two goals:
 
 ## Stack constraints
 
-- **WordPress 7.0+** required (`wp_enqueue_script_module`, `@wordpress/abilities`, `wp_ai_client_prompt`)
+- **WordPress 7.0+** required (`wp_enqueue_script_module`, `@wordpress/abilities`, `wp_ai_client_prompt`), and **PHP 8.0+**. Local development runs the latest WordPress; CI runs e2e on WordPress {7.0, latest} × PHP 8.0–8.5
 - **Two layers, two build stories.** The abilities and WebMCP layer under `js/` is hand-written native ESM with no build step; WordPress import maps resolve its bare specifiers. The chat panel under `src/` is a React app built with Vite into `build/`
 - **React comes from WordPress, never from the bundle.** WordPress 7.0 ships React 18.3 as the `react`, `react-dom`, and `react-jsx-runtime` classic scripts. The build aliases every React specifier to a shim that re-exports those globals
 - **PHP** bootstraps, enqueues, and owns the AI Client; all ability and UI logic is client-side JS
@@ -127,6 +127,13 @@ npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules
 npm run zip          # Build, then write dist/agentic-editor.zip (gitignored)
+npm run test:e2e     # Playwright against the npm start site (started if not running)
+```
+
+To run e2e against another WordPress or PHP version, as the CI matrix does, set the version and a spare port; Playwright starts a separate site there and leaves the 9400 one alone:
+
+```bash
+WP_VERSION=7.0 PHP_VERSION=8.0 WP_PORT=9401 npm run test:e2e
 ```
 
 `build/` is gitignored, so a fresh checkout has no panel until `npm run build` runs. PHP shows an admin notice saying exactly that rather than rendering nothing.

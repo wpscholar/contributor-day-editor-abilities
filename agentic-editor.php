@@ -4,7 +4,7 @@
  * Description:       Registers client-side block editor abilities, bridges them to WebMCP, and adds an AI chat panel powered by the WordPress AI Client.
  * Version:           0.1.0
  * Requires at least: 7.0
- * Requires PHP:      7.4
+ * Requires PHP:      8.0
  * Author:            Micah Wood
  * License:           GPL-2.0-or-later
  * Text Domain:       agentic-editor
