@@ -209,7 +209,7 @@ test.describe( 'mutating the document', () => {
 			clientId: columns.value.clientId,
 		} );
 		expect( remove.isError ).toBe( false );
-		expect( remove.value.removedInnerBlockCount ).toBe( 2 );
+		expect( remove.value.removedInnerBlockCount ).toBe( 3 );
 
 		const stillThere = await callTool( 'editor_find-editor-blocks', {
 			search: 'Doomed',

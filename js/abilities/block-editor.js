@@ -5,14 +5,17 @@
 
 import {
 	ABILITY_CATEGORY,
-	BLOCK_EDITOR_STORE,
 	BLOCKS_STORE,
+	BLOCK_EDITOR_STORE,
 	CORE_STORE,
 	assertCanInsert,
 	assertEditorReady,
 	assertNoReservedAttributes,
 	buildBlock,
+	canInsertAt,
+	countDescendants,
 	describeEditingLock,
+	getAncestorNames,
 	getBlocksApi,
 	getContentAttributeNames,
 	getData,
@@ -23,8 +26,10 @@ import {
 	registerAbilities,
 	requireBlock,
 	requireBlockType,
+	resolveInsertionPoint,
 	summarizeBlock,
 	trySelectBlock,
+	validateIndex,
 	waitForBlockListSettings,
 	withControlledRef,
 } from '@agentic-editor/abilities/shared';
@@ -246,6 +251,42 @@ function getBlockTypeStyles( name, blockType ) {
 }
 
 /**
+ * Turn an inner-blocks template into the { name, attributes, innerBlocks }
+ * shape editor/insert-block accepts.
+ *
+ * Variations declare inner blocks as `[ name, attributes, innerBlocks ]`
+ * tuples, the same as an InnerBlocks template, which insert-block cannot take.
+ *
+ * @param {unknown} template
+ * @return {Object[]}
+ */
+function toBlockSpecs( template ) {
+	if ( ! Array.isArray( template ) ) {
+		return [];
+	}
+	return template
+		.map( ( entry ) => {
+			if ( Array.isArray( entry ) ) {
+				const [ name, attributes, innerBlocks ] = entry;
+				return {
+					name,
+					attributes: attributes ?? {},
+					innerBlocks: toBlockSpecs( innerBlocks ),
+				};
+			}
+			if ( isPlainObject( entry ) && typeof entry.name === 'string' ) {
+				return {
+					name: entry.name,
+					attributes: entry.attributes ?? {},
+					innerBlocks: toBlockSpecs( entry.innerBlocks ),
+				};
+			}
+			return null;
+		} )
+		.filter( ( spec ) => spec && typeof spec.name === 'string' );
+}
+
+/**
  * Variations for a block type, reduced to what an insert call would need.
  *
  * @param {string} name
@@ -263,7 +304,7 @@ function getBlockTypeVariations( name ) {
 		description: variation.description ?? '',
 		isDefault: !! variation.isDefault,
 		attributes: variation.attributes ?? {},
-		innerBlocks: variation.innerBlocks ?? [],
+		innerBlocks: toBlockSpecs( variation.innerBlocks ),
 	} ) );
 }
 
@@ -638,42 +679,23 @@ const insertBlockAbility = {
 			throw new Error( `Block type is not registered: ${ input.name }` );
 		}
 
-		let index = input.index;
-		if ( index !== undefined && ! Number.isInteger( index ) ) {
-			throw new Error( 'index must be an integer.' );
-		}
-		if ( index !== undefined && index < 0 ) {
-			throw new Error( 'index must be zero or greater.' );
-		}
-
-		if ( input.rootClientId ) {
-			requireBlock( store, input.rootClientId, 'rootClientId' );
-		}
-
-		let effectiveRootClientId = input.rootClientId || '';
-
-		if ( input.afterClientId ) {
-			requireBlock( store, input.afterClientId, 'afterClientId' );
-
-			const afterRoot =
-				store.getBlockRootClientId( input.afterClientId ) || '';
-			if ( input.rootClientId && input.rootClientId !== afterRoot ) {
-				throw new Error(
-					'afterClientId is not a child of the provided rootClientId.'
-				);
-			}
-
-			effectiveRootClientId = afterRoot;
-			index = store.getBlockIndex( input.afterClientId ) + 1;
-		}
+		const { rootClientId: effectiveRootClientId, index } =
+			resolveInsertionPoint( store, input );
 
 		await assertCanInsert( store, input.name, effectiveRootClientId );
 
-		const block = buildBlock( {
-			name: input.name,
-			attributes: input.attributes,
-			innerBlocks: input.innerBlocks,
-		} );
+		// Nested blocks are judged against where they will actually sit, so a
+		// block that needs a particular ancestor is refused before insertion.
+		const block = buildBlock(
+			{
+				name: input.name,
+				attributes: input.attributes,
+				innerBlocks: input.innerBlocks,
+			},
+			'',
+			null,
+			getAncestorNames( store, effectiveRootClientId )
+		);
 
 		await actions.insertBlock(
 			block,
@@ -769,16 +791,23 @@ const moveBlockAbility = {
 				'Provide only one of afterClientId or beforeClientId.'
 			);
 		}
-		if ( input.index !== undefined && ! Number.isInteger( input.index ) ) {
-			throw new Error( 'index must be an integer.' );
-		}
-		if ( input.index !== undefined && input.index < 0 ) {
-			throw new Error( 'index must be zero or greater.' );
-		}
+		validateIndex( input.index );
 
 		const fromRootClientId =
 			store.getBlockRootClientId( input.clientId ) || '';
 		const fromIndex = store.getBlockIndex( input.clientId );
+
+		// The block's own move lock, or a parent locked with templateLock,
+		// would have the store decline the move without saying why.
+		if ( store.canMoveBlock?.( input.clientId ) === false ) {
+			await trySelectBlock( input.clientId );
+			const lockReason = describeEditingLock( store, fromRootClientId );
+			throw new Error(
+				lockReason
+					? `Block "${ block.name }" cannot be moved: ${ lockReason }`
+					: `Block "${ block.name }" cannot be moved, because it or its parent is locked against moving. A person needs to unlock it in the editor first.`
+			);
+		}
 
 		const sibling = input.afterClientId || input.beforeClientId;
 		let toRootClientId;
@@ -860,12 +889,18 @@ const moveBlockAbility = {
 			);
 		}
 
+		// Leaving one parent for another removes the block from the first.
 		if (
-			! store.canInsertBlockType(
-				block.name,
-				toRootClientId || undefined
-			)
+			toRootClientId !== fromRootClientId &&
+			store.canRemoveBlock?.( input.clientId ) === false
 		) {
+			await trySelectBlock( input.clientId );
+			throw new Error(
+				`Block "${ block.name }" cannot be moved out of its parent, because it is locked against removal there. It can still be reordered within that parent.`
+			);
+		}
+
+		if ( ! canInsertAt( store, block.name, toRootClientId ) ) {
 			throw new Error(
 				`Block "${ block.name }" cannot be moved into the requested parent.`
 			);
@@ -1048,7 +1083,11 @@ const removeBlockAbility = {
 			name: { type: 'string' },
 			rootClientId: { type: [ 'string', 'null' ] },
 			index: { type: 'integer' },
-			removedInnerBlockCount: { type: 'integer' },
+			removedInnerBlockCount: {
+				type: 'integer',
+				description:
+					'Blocks removed along with it, at every depth, including the contents of a synced pattern.',
+			},
 		},
 		required: [ 'clientId', 'name', 'index' ],
 	},
@@ -1069,6 +1108,8 @@ const removeBlockAbility = {
 		const rootClientId =
 			store.getBlockRootClientId( input.clientId ) || null;
 		const index = store.getBlockIndex( input.clientId );
+		// Counted before removal, while the subtree is still in the store.
+		const removedInnerBlockCount = countDescendants( store, block );
 
 		if ( store.canRemoveBlock?.( input.clientId ) === false ) {
 			await trySelectBlock( input.clientId );
@@ -1095,7 +1136,7 @@ const removeBlockAbility = {
 			name: block.name,
 			rootClientId,
 			index,
-			removedInnerBlockCount: ( block.innerBlocks || [] ).length,
+			removedInnerBlockCount,
 		};
 	},
 };
@@ -1207,21 +1248,18 @@ const canInsertBlockAbility = {
 		const { select } = getData();
 		const store = select( BLOCK_EDITOR_STORE );
 
+		// An unknown name is a mistake to report, not a block that happens
+		// not to fit here.
+		requireBlockType( name );
+
 		if ( rootClientId ) {
 			requireBlock( store, rootClientId, 'rootClientId' );
 		}
 
 		await waitForBlockListSettings( store, rootClientId );
 
-		// canInsertBlockType special-cases the default block type
-		// (core/paragraph) as insertable almost anywhere, including inside
-		// a container the editor itself offers no inserter for, so a lock
-		// is checked independently rather than trusted to make it false.
-		const canInsert =
-			! describeEditingLock( store, rootClientId ) &&
-			!! store.canInsertBlockType( name, rootClientId || undefined );
 		return {
-			canInsert,
+			canInsert: canInsertAt( store, name, rootClientId ),
 			name,
 			rootClientId: rootClientId || null,
 		};
@@ -1326,15 +1364,6 @@ const getBlockTypesAbility = {
 			await waitForBlockListSettings( store, input.rootClientId );
 		}
 
-		// canInsertBlockType special-cases the default block type
-		// (core/paragraph) as insertable almost anywhere, including inside
-		// a container the editor itself offers no inserter for, so a lock
-		// on the destination is checked once, up front, rather than left
-		// for canInsertBlockType to catch per block type.
-		const locationLocked =
-			filterInsertable &&
-			!! describeEditingLock( store, input.rootClientId );
-
 		const matches = all
 			.filter( ( blockType ) => {
 				if (
@@ -1358,15 +1387,9 @@ const getBlockTypesAbility = {
 						return false;
 					}
 				}
-				if ( filterInsertable && locationLocked ) {
-					return false;
-				}
 				if (
 					filterInsertable &&
-					! store.canInsertBlockType(
-						blockType.name,
-						input.rootClientId || undefined
-					)
+					! canInsertAt( store, blockType.name, input.rootClientId )
 				) {
 					return false;
 				}

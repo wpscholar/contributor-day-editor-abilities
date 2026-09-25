@@ -9,12 +9,14 @@ import {
 	assertCanInsert,
 	assertEditorReady,
 	buildBlock,
+	canInsertAt,
 	describeEditingLock,
 	getBlocksApi,
 	getData,
 	registerAbilities,
 	requireBlock,
 	requireBlockType,
+	resolveInsertionPoint,
 	summarizeBlock,
 	trySelectBlock,
 	waitForBlockListSettings,
@@ -223,7 +225,9 @@ function normalizeUserPattern( record, categorySlugsById ) {
 		),
 		blockTypes: [],
 		inserter: true,
-		content: record.content?.raw ?? record.content?.rendered ?? '',
+		// Only the raw markup holds block comments. The rendered form is
+		// front-end HTML, which would parse as a single freeform block.
+		content: record.content?.raw ?? '',
 	};
 }
 
@@ -305,6 +309,45 @@ function summarizePattern( pattern ) {
 }
 
 /**
+ * One user pattern by post ID, without loading every other one.
+ *
+ * @param {string} id Post ID, as it appears in the pattern name.
+ * @return {Promise<?Object>} Null when there is no such pattern.
+ */
+async function loadUserPattern( id ) {
+	if ( ! /^\d+$/.test( id ) ) {
+		return null;
+	}
+	const core = getResolveSelect()( CORE_STORE );
+	if ( typeof core?.getEntityRecord !== 'function' ) {
+		return null;
+	}
+
+	let record;
+	try {
+		record = await core.getEntityRecord(
+			'postType',
+			PATTERN_POST_TYPE,
+			Number( id ),
+			{ context: 'edit' }
+		);
+	} catch {
+		return null;
+	}
+	if ( ! record?.id ) {
+		return null;
+	}
+
+	const terms = record.wp_pattern_category?.length
+		? await loadPatternCategoryTerms()
+		: [];
+	return normalizeUserPattern(
+		record,
+		new Map( terms.map( ( term ) => [ term.id, term.slug ] ) )
+	);
+}
+
+/**
  * @param {string} name
  * @return {Promise<Object>}
  */
@@ -315,8 +358,11 @@ async function requirePattern( name ) {
 		);
 	}
 
-	const patterns = await loadPatterns();
-	const pattern = patterns.find( ( candidate ) => candidate.name === name );
+	const pattern = name.startsWith( USER_PATTERN_PREFIX )
+		? await loadUserPattern( name.slice( USER_PATTERN_PREFIX.length ) )
+		: ( await loadRegisteredPatterns() )
+				.map( normalizeRegisteredPattern )
+				.find( ( candidate ) => candidate.name === name );
 	if ( ! pattern ) {
 		throw new Error(
 			`Pattern not found: ${ name }. Use editor/get-patterns to list what this site has.`
@@ -371,58 +417,97 @@ async function listPatternCategories() {
  * the term when it does not exist yet. The editor does the same: a category a
  * theme declared has no term until a pattern is filed under it.
  *
+ * A name given twice, or by both its slug and its label, is filed once. If a
+ * term cannot be created, the ones this call already created are deleted.
+ *
  * @param {string[]} [names]
- * @return {Promise<{ ids: number[], slugs: string[], created: string[] }>}
+ * @return {Promise<{ ids: number[], slugs: string[], created: string[], createdIds: number[] }>}
  */
 async function resolvePatternCategoryIds( names ) {
+	const resolved = { ids: [], slugs: [], created: [], createdIds: [] };
 	if ( ! names?.length ) {
-		return { ids: [], slugs: [], created: [] };
+		return resolved;
 	}
 
-	const { dispatch } = getData();
-	const categories = await listPatternCategories();
-	const ids = [];
-	const slugs = [];
-	const created = [];
-
 	for ( const requested of names ) {
-		if ( typeof requested !== 'string' || ! requested ) {
+		if ( typeof requested !== 'string' || ! requested.trim() ) {
 			throw new Error(
 				'categories must be a list of pattern category names.'
 			);
 		}
-
-		const needle = requested.toLowerCase();
-		const match = categories.find(
-			( category ) =>
-				category.name.toLowerCase() === needle ||
-				category.label.toLowerCase() === needle
-		);
-
-		if ( match?.id ) {
-			ids.push( match.id );
-			slugs.push( match.name );
-			continue;
-		}
-
-		const term = await dispatch( CORE_STORE ).saveEntityRecord(
-			'taxonomy',
-			PATTERN_TAXONOMY,
-			{ name: match?.label ?? requested, slug: match?.name },
-			{ throwOnError: true }
-		);
-		if ( ! term?.id ) {
-			throw new Error(
-				`Could not create the pattern category "${ requested }".`
-			);
-		}
-
-		ids.push( term.id );
-		slugs.push( term.slug ?? requested );
-		created.push( term.slug ?? requested );
 	}
 
-	return { ids, slugs, created };
+	const { dispatch } = getData();
+	const categories = await listPatternCategories();
+	const seen = new Set();
+
+	try {
+		for ( const requested of names ) {
+			const needle = requested.trim().toLowerCase();
+			const match = categories.find(
+				( category ) =>
+					category.name.toLowerCase() === needle ||
+					category.label.toLowerCase() === needle
+			);
+
+			const key = match?.name ?? needle;
+			if ( seen.has( key ) ) {
+				continue;
+			}
+			seen.add( key );
+
+			if ( match?.id ) {
+				resolved.ids.push( match.id );
+				resolved.slugs.push( match.name );
+				continue;
+			}
+
+			const term = await dispatch( CORE_STORE ).saveEntityRecord(
+				'taxonomy',
+				PATTERN_TAXONOMY,
+				{ name: match?.label ?? requested.trim(), slug: match?.name },
+				{ throwOnError: true }
+			);
+			if ( ! term?.id ) {
+				throw new Error(
+					`Could not create the pattern category "${ requested }".`
+				);
+			}
+
+			const slug = term.slug ?? requested;
+			resolved.ids.push( term.id );
+			resolved.slugs.push( slug );
+			resolved.created.push( slug );
+			resolved.createdIds.push( term.id );
+		}
+	} catch ( error ) {
+		await deletePatternCategories( resolved.createdIds );
+		throw error;
+	}
+
+	return resolved;
+}
+
+/**
+ * Delete category terms this plugin created, when the save they were for
+ * failed. Best-effort: a failed clean-up must not hide the original error.
+ *
+ * @param {number[]} ids
+ */
+async function deletePatternCategories( ids ) {
+	const { dispatch } = getData();
+	for ( const id of ids ) {
+		try {
+			await dispatch( CORE_STORE ).deleteEntityRecord(
+				'taxonomy',
+				PATTERN_TAXONOMY,
+				id,
+				{ force: true }
+			);
+		} catch {
+			// Nothing more to do; the term is merely left unused.
+		}
+	}
 }
 
 /**
@@ -616,15 +701,6 @@ const getPatternsAbility = {
 			await waitForBlockListSettings( store, input.rootClientId );
 		}
 
-		// canInsertBlockType special-cases the default block type
-		// (core/paragraph) as insertable almost anywhere, including inside
-		// a container the editor itself offers no inserter for, so a lock
-		// on the destination is checked once, up front, rather than left
-		// for canInsertBlockType to catch per pattern.
-		const locationLocked =
-			!! input.rootClientId &&
-			!! describeEditingLock( store, input.rootClientId );
-
 		const matches = all
 			.filter( ( pattern ) => {
 				if ( ! input.includeHidden && ! pattern.inserter ) {
@@ -671,17 +747,11 @@ const getPatternsAbility = {
 					}
 				}
 				if ( input.rootClientId ) {
-					if ( locationLocked ) {
-						return false;
-					}
 					const { rootBlockNames } = getPatternStructure( pattern );
 					const fits =
 						rootBlockNames.length &&
 						rootBlockNames.every( ( blockName ) =>
-							store.canInsertBlockType(
-								blockName,
-								input.rootClientId
-							)
+							canInsertAt( store, blockName, input.rootClientId )
 						);
 					if ( ! fits ) {
 						return false;
@@ -867,7 +937,7 @@ const insertPatternAbility = {
 			asReference: {
 				type: 'boolean',
 				description:
-					'For a pattern saved on this site, insert a single core/block that references it instead of copying its blocks in. Defaults to true for synced patterns, which is how the editor inserts them.',
+					'For a synced pattern saved on this site, insert a single core/block that references it (the default, and how the editor inserts them). Pass false to copy its blocks in instead. Unsynced and registered patterns can only be copied.',
 			},
 		},
 		required: [ 'name' ],
@@ -904,34 +974,8 @@ const insertPatternAbility = {
 
 		const pattern = await requirePattern( input.name );
 
-		let index = input.index;
-		if ( index !== undefined && ! Number.isInteger( index ) ) {
-			throw new Error( 'index must be an integer.' );
-		}
-		if ( index !== undefined && index < 0 ) {
-			throw new Error( 'index must be zero or greater.' );
-		}
-
-		if ( input.rootClientId ) {
-			requireBlock( store, input.rootClientId, 'rootClientId' );
-		}
-
-		let effectiveRootClientId = input.rootClientId || '';
-
-		if ( input.afterClientId ) {
-			requireBlock( store, input.afterClientId, 'afterClientId' );
-
-			const afterRoot =
-				store.getBlockRootClientId( input.afterClientId ) || '';
-			if ( input.rootClientId && input.rootClientId !== afterRoot ) {
-				throw new Error(
-					'afterClientId is not a child of the provided rootClientId.'
-				);
-			}
-
-			effectiveRootClientId = afterRoot;
-			index = store.getBlockIndex( input.afterClientId ) + 1;
-		}
+		const { rootClientId: effectiveRootClientId, index } =
+			resolveInsertionPoint( store, input );
 
 		const asReference =
 			input.asReference ?? pattern.syncStatus === 'synced';
@@ -940,6 +984,13 @@ const insertPatternAbility = {
 				`Pattern "${ pattern.name }" is registered by ${
 					pattern.source ?? 'this site'
 				} rather than saved on it, so it has nothing to reference. Insert it without asReference.`
+			);
+		}
+		// A reference to an unsynced pattern would turn this copy into a
+		// synced instance, which is not what unsynced means.
+		if ( asReference && pattern.syncStatus === 'unsynced' ) {
+			throw new Error(
+				`Pattern "${ pattern.name }" is unsynced, so it cannot be inserted as a reference. Insert it without asReference to copy its blocks in.`
 			);
 		}
 
@@ -1145,11 +1196,10 @@ const createPatternAbility = {
 
 		await assertCanCreatePatterns();
 
-		const { ids, slugs, created } = await resolvePatternCategoryIds(
-			input.categories
-		);
+		const { ids, slugs, created, createdIds } =
+			await resolvePatternCategoryIds( input.categories );
 
-		const record = await dispatch( CORE_STORE ).saveEntityRecord(
+		const save = dispatch( CORE_STORE ).saveEntityRecord(
 			'postType',
 			PATTERN_POST_TYPE,
 			{
@@ -1167,8 +1217,17 @@ const createPatternAbility = {
 			{ throwOnError: true }
 		);
 
-		if ( ! record?.id ) {
-			throw new Error( 'WordPress did not save this pattern.' );
+		let record;
+		try {
+			record = await save;
+			if ( ! record?.id ) {
+				throw new Error( 'WordPress did not save this pattern.' );
+			}
+		} catch ( error ) {
+			// Categories created for a pattern that never saved would be
+			// left behind with nothing filed under them.
+			await deletePatternCategories( createdIds );
+			throw error;
 		}
 
 		const result = {

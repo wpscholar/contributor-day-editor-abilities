@@ -10,8 +10,19 @@ export type ToolResult = {
 	text: string;
 };
 
+/**
+ * Records a test creates outside the post, deleted when the test ends.
+ */
+export type Cleanup = {
+	/** A `wp_block` post, by ID. */
+	pattern: ( id: number ) => void;
+	/** A `wp_pattern_category` term, by slug. */
+	category: ( slug: string ) => void;
+};
+
 type Fixtures = {
 	editor: Page;
+	cleanup: Cleanup;
 	callTool: (
 		name: string,
 		args?: Record< string, unknown >
@@ -43,6 +54,44 @@ export const test = base.extend< Fixtures >( {
 			);
 
 		await use( callTool );
+	},
+
+	// The dev site is shared with manual testing, so nothing a test publishes
+	// is left on it, whether the test passed or not.
+	cleanup: async ( { editor }, use ) => {
+		const patternIds = new Set< number >();
+		const categorySlugs = new Set< string >();
+
+		await use( {
+			pattern: ( id ) => patternIds.add( id ),
+			category: ( slug ) => categorySlugs.add( slug ),
+		} );
+
+		await editor.evaluate(
+			async ( { ids, slugs } ) => {
+				const apiFetch = ( window as any ).wp.apiFetch;
+				for ( const id of ids ) {
+					await apiFetch( {
+						path: `/wp/v2/blocks/${ id }?force=true`,
+						method: 'DELETE',
+					} ).catch( () => {} );
+				}
+				for ( const slug of slugs ) {
+					const terms = await apiFetch( {
+						path: `/wp/v2/wp_pattern_category?slug=${ encodeURIComponent(
+							slug
+						) }`,
+					} ).catch( () => [] );
+					for ( const term of terms ) {
+						await apiFetch( {
+							path: `/wp/v2/wp_pattern_category/${ term.id }?force=true`,
+							method: 'DELETE',
+						} ).catch( () => {} );
+					}
+				}
+			},
+			{ ids: [ ...patternIds ], slugs: [ ...categorySlugs ] }
+		);
 	},
 } );
 

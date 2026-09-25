@@ -292,11 +292,14 @@ export function getContentAttributeNames( blockName ) {
 /**
  * Reject nesting the editor would refuse anyway, before anything is inserted.
  *
- * @param {string} parentName
- * @param {string} childName
- * @param {string} path
+ * @param {string}    parentName
+ * @param {string}    childName
+ * @param {string}    path
+ * @param {?string[]} ancestorNames Every block name above the child, parent
+ *                                  included, or null when the destination is
+ *                                  not known and `ancestor` cannot be judged.
  */
-function assertNestingAllowed( parentName, childName, path ) {
+function assertNestingAllowed( parentName, childName, path, ancestorNames ) {
 	const { getBlockType } = getBlocksApi();
 
 	const allowedParents = getBlockType( childName )?.parent;
@@ -306,6 +309,19 @@ function assertNestingAllowed( parentName, childName, path ) {
 	) {
 		throw new Error(
 			`${ path }: "${ childName }" can only be nested inside ${ allowedParents.join(
+				', '
+			) }.`
+		);
+	}
+
+	const requiredAncestors = getBlockType( childName )?.ancestor;
+	if (
+		ancestorNames &&
+		Array.isArray( requiredAncestors ) &&
+		! requiredAncestors.some( ( name ) => ancestorNames.includes( name ) )
+	) {
+		throw new Error(
+			`${ path }: "${ childName }" can only be used somewhere inside ${ requiredAncestors.join(
 				', '
 			) }.`
 		);
@@ -328,12 +344,22 @@ function assertNestingAllowed( parentName, childName, path ) {
  * Build a block and its descendants from a plain { name, attributes,
  * innerBlocks } spec.
  *
- * @param {Object}  spec
- * @param {string}  [path]       Field path prefix, used in error messages.
- * @param {?string} [parentName] Block name this spec is nested in.
+ * @param {Object}    spec
+ * @param {string}    [path]          Field path prefix, used in error messages.
+ * @param {?string}   [parentName]    Block name this spec is nested in.
+ * @param {?string[]} [ancestorNames] Block names above this spec, outermost
+ *                                    first. Null when the blocks have no
+ *                                    destination yet (a pattern being saved),
+ *                                    which skips `ancestor` checks rather than
+ *                                    guessing where they will end up.
  * @return {Object}
  */
-export function buildBlock( spec, path = '', parentName = null ) {
+export function buildBlock(
+	spec,
+	path = '',
+	parentName = null,
+	ancestorNames = null
+) {
 	const { createBlock, getBlockType } = getBlocksApi();
 	const field = ( key ) => ( path ? `${ path }.${ key }` : key );
 
@@ -350,7 +376,7 @@ export function buildBlock( spec, path = '', parentName = null ) {
 		throw new Error( `Block type is not registered: ${ name }` );
 	}
 	if ( parentName ) {
-		assertNestingAllowed( parentName, name, path );
+		assertNestingAllowed( parentName, name, path, ancestorNames );
 	}
 
 	if ( isPlainObject( spec.attributes ) ) {
@@ -368,7 +394,12 @@ export function buildBlock( spec, path = '', parentName = null ) {
 		name,
 		normalizeAttributes( name, spec.attributes ?? {} ),
 		children.map( ( child, index ) =>
-			buildBlock( child, `${ field( 'innerBlocks' ) }[${ index }]`, name )
+			buildBlock(
+				child,
+				`${ field( 'innerBlocks' ) }[${ index }]`,
+				name,
+				ancestorNames ? [ ...ancestorNames, name ] : null
+			)
 		)
 	);
 }
@@ -393,6 +424,46 @@ export function getInnerBlocks( store, block ) {
 		};
 	}
 	return { innerBlocks: block.innerBlocks || [], controlled: false };
+}
+
+/**
+ * Every block nested inside a block, at any depth, including the contents of
+ * synced patterns and template parts.
+ *
+ * @param {Object}       store         Block editor store selectors.
+ * @param {Object}       block
+ * @param {Set<unknown>} [visitedRefs] Pattern entities on the current path.
+ * @return {number}
+ */
+export function countDescendants( store, block, visitedRefs = new Set() ) {
+	const { innerBlocks, controlled } = getInnerBlocks( store, block );
+	const childRefs = controlled
+		? withControlledRef( block, visitedRefs )
+		: visitedRefs;
+	if ( childRefs === null ) {
+		return 0;
+	}
+	return innerBlocks.reduce(
+		( total, child ) =>
+			total + 1 + countDescendants( store, child, childRefs ),
+		0
+	);
+}
+
+/**
+ * Names of a location's block and everything above it, outermost first.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {?string} rootClientId Location, empty for the document root.
+ * @return {string[]}
+ */
+export function getAncestorNames( store, rootClientId ) {
+	if ( ! rootClientId ) {
+		return [];
+	}
+	return [ ...( store.getBlockParents( rootClientId ) || [] ), rootClientId ]
+		.map( ( clientId ) => store.getBlockName( clientId ) )
+		.filter( Boolean );
 }
 
 /**
@@ -455,6 +526,26 @@ export function requireBlock( store, clientId, label = 'clientId' ) {
 }
 
 /**
+ * The element a block renders in the editor canvas, when it has rendered.
+ *
+ * @param {string} clientId
+ * @return {?Element}
+ */
+function findBlockElement( clientId ) {
+	if ( typeof document === 'undefined' ) {
+		return null;
+	}
+	const canvas = /** @type {?HTMLIFrameElement} */ (
+		document.querySelector( 'iframe[name="editor-canvas"]' )
+	);
+	const selector = `[data-block="${ CSS.escape( clientId ) }"]`;
+	return (
+		canvas?.contentDocument?.querySelector( selector ) ??
+		document.querySelector( selector )
+	);
+}
+
+/**
  * A freshly inserted container has no list settings until the editor canvas
  * renders its InnerBlocks, a React pass that lags the data-store insert by a
  * render or two. Until then, canInsertBlockType(...) can't see the parent's
@@ -473,6 +564,19 @@ export async function waitForBlockListSettings(
 	if (
 		! rootClientId ||
 		store.getBlockListSettings( rootClientId ) !== undefined
+	) {
+		return;
+	}
+
+	// A block that has rendered without an inner block list is a leaf, or a
+	// container still showing its placeholder. Neither will ever get list
+	// settings on its own, so waiting would only delay the refusal. The list
+	// renders in the same pass as its block, so a container never looks
+	// like this.
+	const element = findBlockElement( rootClientId );
+	if (
+		element &&
+		! element.querySelector( '.block-editor-block-list__layout' )
 	) {
 		return;
 	}
@@ -551,6 +655,80 @@ export async function trySelectBlock( clientId ) {
 }
 
 /**
+ * Whether a block type may go at a location, as the editor's own inserter
+ * would judge it.
+ *
+ * canInsertBlockType special-cases the default block type (core/paragraph) as
+ * insertable almost anywhere, including inside a container the editor offers
+ * no inserter for, so a lock is checked independently rather than trusted to
+ * make it false. Call waitForBlockListSettings first for a fresh container.
+ *
+ * @param {Object}  store        Block editor store selectors.
+ * @param {string}  name         Block name.
+ * @param {?string} rootClientId Destination parent, empty for the root.
+ * @return {boolean}
+ */
+export function canInsertAt( store, name, rootClientId ) {
+	return (
+		! describeEditingLock( store, rootClientId ) &&
+		!! store.canInsertBlockType( name, rootClientId || undefined )
+	);
+}
+
+/**
+ * Check an optional index input.
+ *
+ * @param {unknown} index
+ * @return {number|undefined}
+ */
+export function validateIndex( index ) {
+	if ( index === undefined ) {
+		return undefined;
+	}
+	if ( ! Number.isInteger( index ) ) {
+		throw new Error( 'index must be an integer.' );
+	}
+	if ( /** @type {number} */ ( index ) < 0 ) {
+		throw new Error( 'index must be zero or greater.' );
+	}
+	return /** @type {number} */ ( index );
+}
+
+/**
+ * Where an insert lands, from `rootClientId`, `index`, and `afterClientId`.
+ *
+ * @param {Object}                                                             store Block editor store selectors.
+ * @param {{ rootClientId?: string, index?: unknown, afterClientId?: string }} input
+ * @return {{ rootClientId: string, index: number|undefined }} Index undefined means append.
+ */
+export function resolveInsertionPoint( store, input ) {
+	let index = validateIndex( input.index );
+
+	if ( input.rootClientId ) {
+		requireBlock( store, input.rootClientId, 'rootClientId' );
+	}
+
+	let rootClientId = input.rootClientId || '';
+
+	if ( input.afterClientId ) {
+		requireBlock( store, input.afterClientId, 'afterClientId' );
+
+		const afterRoot =
+			store.getBlockRootClientId( input.afterClientId ) || '';
+		if ( input.rootClientId && input.rootClientId !== afterRoot ) {
+			throw new Error(
+				'afterClientId is not a child of the provided rootClientId.'
+			);
+		}
+
+		rootClientId = afterRoot;
+		index = store.getBlockIndex( input.afterClientId ) + 1;
+	}
+
+	return { rootClientId, index };
+}
+
+/**
  * Ensure a block type is allowed at a location, with an actionable reason when
  * it is not.
  *
@@ -595,7 +773,7 @@ export async function assertCanInsert(
 	const parent = rootClientId ? store.getBlock( rootClientId ) : null;
 	if (
 		parent &&
-		! ( parent.innerBlocks || [] ).length &&
+		! getInnerBlocks( store, parent ).innerBlocks.length &&
 		store.getBlockListSettings?.( rootClientId ) === undefined
 	) {
 		throw new Error(
