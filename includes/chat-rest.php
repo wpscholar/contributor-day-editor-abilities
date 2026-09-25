@@ -336,14 +336,19 @@ function agentic_editor_chat_is_available() {
 		return false;
 	}
 
-	if ( function_exists( 'wp_supports_ai' ) && ! wp_supports_ai() ) {
-		return false;
-	}
-
 	$builder = wp_ai_client_prompt( 'test' )
 		->using_model_preference( ...agentic_editor_chat_model_preference() );
 
 	return (bool) $builder->is_supported_for_text_generation();
+}
+
+/**
+ * Where to set up an AI connector, for users who may do that.
+ *
+ * @return string|null Null for users who cannot manage connectors.
+ */
+function agentic_editor_chat_connectors_url() {
+	return current_user_can( 'manage_options' ) ? admin_url( 'options-connectors.php' ) : null;
 }
 
 /**
@@ -359,9 +364,7 @@ function agentic_editor_handle_chat_status_request() {
 			'available'       => agentic_editor_chat_is_available(),
 			'hasAiClient'     => $has_client,
 			'modelPreference' => array_values( agentic_editor_chat_model_preference() ),
-			'connectorsUrl'   => current_user_can( 'manage_options' )
-				? admin_url( 'options-connectors.php' )
-				: null,
+			'connectorsUrl'   => agentic_editor_chat_connectors_url(),
 		)
 	);
 }
@@ -408,13 +411,12 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 		isset( $body['messages'] ) && is_array( $body['messages'] ) ? array_values( $body['messages'] ) : array(),
 		$context
 	);
-	$function_map  = array_flip( $tool_map );
 
 	// The client reports the mode that worked last turn, so a conversation pays
 	// the cost of discovering it at most once.
 	$history_mode = ( isset( $body['historyMode'] ) && 'text' === $body['historyMode'] ) ? 'text' : 'native';
 
-	$messages = agentic_editor_chat_build_messages( $wire_messages, $function_map, $history_mode );
+	$messages = agentic_editor_chat_build_messages( $wire_messages, $tool_map, $history_mode );
 	if ( is_wp_error( $messages ) ) {
 		return $messages;
 	}
@@ -444,7 +446,7 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 
 	if ( is_wp_error( $result ) && 'native' === $history_mode && agentic_editor_chat_history_mode_failed( $result ) ) {
 		$history_mode = 'text';
-		$messages     = agentic_editor_chat_build_messages( $wire_messages, $function_map, $history_mode );
+		$messages     = agentic_editor_chat_build_messages( $wire_messages, $tool_map, $history_mode );
 		$result       = is_wp_error( $messages ) ? $messages : $generate( $messages );
 	}
 
@@ -667,15 +669,16 @@ function agentic_editor_chat_schema_is_array( array $schema ) {
  * transcript instead. See agentic_editor_chat_history_mode_failed() for the
  * provider this exists for.
  *
- * @param array<int, mixed>     $messages     Wire-format messages.
- * @param array<string, string> $function_map Tool name => function name.
- * @param string                $mode         `native` or `text`.
+ * @param array<int, mixed>     $messages Wire-format messages.
+ * @param array<string, string> $tool_map Function name => tool name, as agentic_editor_chat_build_declarations() fills it.
+ * @param string                $mode     `native` or `text`.
  * @return array<int, \WordPress\AiClient\Messages\DTO\Message>|WP_Error
  */
-function agentic_editor_chat_build_messages( array $messages, array $function_map, $mode = 'native' ) {
-	$built    = array();
-	$as_text  = 'text' === $mode;
-	$tool_map = array_flip( $function_map );
+function agentic_editor_chat_build_messages( array $messages, array $tool_map, $mode = 'native' ) {
+	$built   = array();
+	$as_text = 'text' === $mode;
+	// Tool results arrive under the tool's name; the provider knows its function name.
+	$function_map = array_flip( $tool_map );
 
 	foreach ( $messages as $message ) {
 		if ( ! is_array( $message ) || empty( $message['role'] ) ) {
@@ -923,11 +926,19 @@ function agentic_editor_chat_parts_as_text( array $parts, array $tool_map ) {
  * plugin ever sees the response and cannot be replayed. Falling back to a text
  * transcript keeps multi-step tool use working until a provider carries them.
  *
+ * Gemini answers that with an HTTP 400, which core reports as
+ * `prompt_client_error`. Only that kind of failure counts, so a server error or
+ * a quota message that happens to mention signatures is not retried.
+ *
  * @param WP_Error $error Generation failure.
  * @return bool
  */
 function agentic_editor_chat_history_mode_failed( WP_Error $error ) {
-	return false !== stripos( $error->get_error_message(), 'thought_signature' );
+	$data      = $error->get_error_data();
+	$status    = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : null;
+	$rejection = 'prompt_client_error' === $error->get_error_code() || 400 === $status;
+
+	return $rejection && 1 === preg_match( '/thought[_ ]signature/i', $error->get_error_message() );
 }
 
 /**

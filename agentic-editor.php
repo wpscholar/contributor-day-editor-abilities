@@ -64,7 +64,7 @@ function agentic_editor_is_supported_editor() {
  * @return void
  */
 function agentic_editor_enqueue_editor_abilities() {
-	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! agentic_editor_is_supported_editor() ) {
+	if ( ! agentic_editor_is_supported_editor() ) {
 		return;
 	}
 

@@ -37,10 +37,6 @@ const AGENTIC_EDITOR_CHAT_BUILD_DIR = 'build/';
  * @return void
  */
 function agentic_editor_register_chat_modules() {
-	if ( ! function_exists( 'wp_register_script_module' ) ) {
-		return;
-	}
-
 	$modules = array(
 		'@agentic-editor/webmcp-polyfill' => array( 'js/webmcp-polyfill.js', array() ),
 		'@agentic-editor/webmcp-tools'    => array( 'js/webmcp-tools.js', array( '@agentic-editor/webmcp-polyfill' ) ),
@@ -114,9 +110,7 @@ function agentic_editor_chat_module_data( $data ) {
 			// Core's endpoint for renewing the nonce in a tab left open past its lifetime.
 			'nonceUrl'      => admin_url( 'admin-ajax.php?action=rest-nonce' ),
 			'available'     => agentic_editor_chat_is_available(),
-			'connectorsUrl' => current_user_can( 'manage_options' )
-				? admin_url( 'options-connectors.php' )
-				: null,
+			'connectorsUrl' => agentic_editor_chat_connectors_url(),
 			'maxToolRounds' => agentic_editor_chat_max_tool_rounds(),
 			'siteName'      => wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ),
 		)
@@ -125,12 +119,29 @@ function agentic_editor_chat_module_data( $data ) {
 add_filter( 'script_module_data_' . AGENTIC_EDITOR_CHAT_CONFIG_MODULE, 'agentic_editor_chat_module_data' );
 
 /**
- * Whether the chat bundle has been built.
+ * Files the chat needs from the build, relative to the build directory.
+ *
+ * @return string[]
+ */
+function agentic_editor_chat_build_files() {
+	return array( 'chat.css', 'chat-editor-sidebar.js', 'chat-standalone.js' );
+}
+
+/**
+ * Whether every file the chat loads has been built.
+ *
+ * A partial build (an interrupted `npm run dev`, say) counts as not built, so
+ * the notice explains the missing panel instead of nothing showing at all.
  *
  * @return bool
  */
 function agentic_editor_chat_is_built() {
-	return file_exists( AGENTIC_EDITOR_PLUGIN_DIR . AGENTIC_EDITOR_CHAT_BUILD_DIR . 'chat.css' );
+	foreach ( agentic_editor_chat_build_files() as $file ) {
+		if ( ! file_exists( AGENTIC_EDITOR_PLUGIN_DIR . AGENTIC_EDITOR_CHAT_BUILD_DIR . $file ) ) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /**
@@ -142,15 +153,11 @@ function agentic_editor_chat_is_built() {
  * @return bool Whether the chat was enqueued; false for users who cannot chat or when there is no build.
  */
 function agentic_editor_enqueue_chat( $module_id, $build_file, array $extra_deps = array() ) {
-	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! agentic_editor_user_can_chat() ) {
+	if ( ! agentic_editor_user_can_chat() || ! agentic_editor_chat_is_built() ) {
 		return false;
 	}
 
 	$path = AGENTIC_EDITOR_CHAT_BUILD_DIR . $build_file;
-
-	if ( ! file_exists( AGENTIC_EDITOR_PLUGIN_DIR . $path ) ) {
-		return false;
-	}
 
 	wp_enqueue_style( 'agentic-editor-chat-chrome' );
 	wp_enqueue_script( 'agentic-editor-webmcp-polyfill' );

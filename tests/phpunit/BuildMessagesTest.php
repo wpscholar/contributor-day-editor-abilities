@@ -59,7 +59,7 @@ class BuildMessagesTest extends TestCase {
 	public function test_native_mode_replays_parts() {
 		$built = agentic_editor_chat_build_messages(
 			$this->round_trip(),
-			array( 'editor_get.editor-tree' => 'editor_get_editor-tree' )
+			array( 'editor_get_editor-tree' => 'editor_get.editor-tree' )
 		);
 
 		$this->assertIsArray( $built );
@@ -87,7 +87,7 @@ class BuildMessagesTest extends TestCase {
 	public function test_text_mode_replays_a_transcript() {
 		$built = agentic_editor_chat_build_messages(
 			$this->round_trip(),
-			array( 'editor_get.editor-tree' => 'editor_get-editor-tree' ),
+			array( 'editor_get-editor-tree' => 'editor_get.editor-tree' ),
 			'text'
 		);
 

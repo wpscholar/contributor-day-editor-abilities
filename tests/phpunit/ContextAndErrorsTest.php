@@ -77,14 +77,46 @@ class ContextAndErrorsTest extends TestCase {
 		$this->assertSame( "<page_context>\nabcde\n</page_context>", $note );
 	}
 
-	public function test_history_mode_failure_is_detected_from_a_thought_signature_error() {
+	public function test_history_mode_failure_is_a_rejected_request_about_thought_signatures() {
 		$this->assertTrue(
 			agentic_editor_chat_history_mode_failed(
-				new \WP_Error( 'prompt_failed', 'Function call is missing a Thought_Signature in functionCall parts.' )
+				new \WP_Error(
+					'prompt_client_error',
+					'Function call is missing a Thought_Signature in functionCall parts.',
+					array( 'status' => 400 )
+				)
 			)
 		);
-		$this->assertFalse(
-			agentic_editor_chat_history_mode_failed( new \WP_Error( 'prompt_failed', 'Quota exceeded.' ) )
+		$this->assertTrue(
+			agentic_editor_chat_history_mode_failed(
+				new \WP_Error( 'other', 'Missing thought signature.', array( 'status' => 400 ) )
+			)
+		);
+	}
+
+	/**
+	 * @dataProvider provide_other_failures
+	 *
+	 * @param \WP_Error $error Generation failure.
+	 */
+	public function test_other_failures_are_not_history_mode_failures( \WP_Error $error ) {
+		$this->assertFalse( agentic_editor_chat_history_mode_failed( $error ) );
+	}
+
+	/**
+	 * @return array<string, array{0: \WP_Error}>
+	 */
+	public function provide_other_failures() {
+		return array(
+			'unrelated rejection'           => array(
+				new \WP_Error( 'prompt_client_error', 'Quota exceeded.', array( 'status' => 400 ) ),
+			),
+			'server error naming signature' => array(
+				new \WP_Error( 'prompt_upstream_server_error', 'thought_signature cache unavailable', array( 'status' => 500 ) ),
+			),
+			'network error'                 => array(
+				new \WP_Error( 'prompt_network_error', 'thought_signature', array( 'status' => 503 ) ),
+			),
 		);
 	}
 

@@ -237,7 +237,7 @@ class ChatRequestTest extends TestCase {
 	}
 
 	public function test_a_thought_signature_failure_retries_once_as_text() {
-		FakePromptBuilder::$results[] = new \WP_Error( 'prompt_failed', 'Missing thought_signature for function call.' );
+		FakePromptBuilder::$results[] = new \WP_Error( 'prompt_client_error', 'Missing thought_signature for function call.', array( 'status' => 400 ) );
 		FakePromptBuilder::$results[] = $this->tool_call_result( 'x' );
 
 		$response = $this->send(
@@ -279,7 +279,7 @@ class ChatRequestTest extends TestCase {
 	}
 
 	public function test_text_mode_is_used_when_the_client_asks_for_it() {
-		FakePromptBuilder::$results[] = new \WP_Error( 'prompt_failed', 'Missing thought_signature.' );
+		FakePromptBuilder::$results[] = new \WP_Error( 'prompt_client_error', 'Missing thought_signature.', array( 'status' => 400 ) );
 
 		$response = $this->send(
 			array(
