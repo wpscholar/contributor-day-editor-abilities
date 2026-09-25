@@ -31,7 +31,7 @@ Two goals:
 | `js/abilities.js` | Aggregates the ability modules into one `registerEditorAbilities()` |
 | `js/abilities/block-editor.js` | Block tree, insert/move/update/remove, transforms, selection, undo/redo |
 | `js/abilities/patterns.js` | Pattern and synced-pattern abilities |
-| `js/abilities/shared.js` | Category, `ensureAbility`, store access, lock and nesting checks |
+| `js/abilities/shared.js` | Category, `registerAbilities`, store access, lock and nesting checks |
 | `js/webmcp-bridge.js` | Maps abilities to WebMCP tools; feature-detects `document.modelContext` |
 | `js/webmcp-polyfill.js` | Reports on the WebMCP environment; installs nothing |
 | `js/webmcp-tools.js` | Consumer side: list and call the page's tools |
@@ -209,15 +209,15 @@ After chat changes, run `npm run build` first, then:
 
 To add an ability:
 
-1. Add an `ensureAbility({ ... })` entry with schemas + callback to the module it belongs in under `js/abilities/` (`block-editor.js` or `patterns.js`)
-2. Push the name onto that module's `abilityNames` array, which its `register…Abilities()` function returns
+1. Add a module-level ability definition (name, schemas, meta, callback) to the module it belongs in under `js/abilities/` (`block-editor.js` or `patterns.js`), with `category: ABILITY_CATEGORY.slug`
+2. Add it to that module's ability list (`BLOCK_EDITOR_ABILITIES` or `PATTERN_ABILITIES`), which `registerAbilities()` registers idempotently
 3. The bridge in `js/index.js` registers all returned names automatically
 4. Add the WebMCP tool name to `EXPECTED_TOOLS` in `tests/e2e/bridge.spec.ts`, which checks the exact set
 5. Document the ability and WebMCP tool name in `README.md`
 
 To add a new abilities module:
 
-1. Create `js/abilities/<name>.js` exporting `register<Name>Abilities()`, importing helpers from `@agentic-editor/abilities/shared` (the import-map ID, never a relative path)
+1. Create `js/abilities/<name>.js` exporting `register<Name>Abilities()` (a one-line `registerAbilities( LIST )`), importing helpers from `@agentic-editor/abilities/shared` (the import-map ID, never a relative path)
 2. Register it in `agentic_editor_enqueue_editor_abilities()` in `agentic-editor.php` with `wp_register_script_module( '@agentic-editor/abilities/<name>', … )`, and add that ID to the dependencies of `@agentic-editor/abilities`
 3. Spread its result into `registerEditorAbilities()` in `js/abilities.js`. `tsconfig.js.json` already maps `@agentic-editor/abilities/*` for `checkJs`
 

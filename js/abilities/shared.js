@@ -641,24 +641,37 @@ export function requireBlockType( name ) {
 }
 
 /**
- * Ensure a category exists without throwing if it was already registered.
- *
- * @param {string}                                 slug
- * @param {{ label: string, description: string }} args
+ * The category every ability in this plugin is filed under.
  */
-export function ensureAbilityCategory( slug, args ) {
-	if ( ! getAbilityCategory( slug ) ) {
-		registerAbilityCategory( slug, args );
-	}
-}
+export const ABILITY_CATEGORY = {
+	slug: 'block-editor',
+	label: 'Block Editor',
+	description:
+		'Abilities for inspecting and modifying the WordPress block editor.',
+};
 
 /**
- * Ensure an ability exists without throwing if it was already registered.
+ * Register abilities, and their category, unless they already exist.
  *
- * @param {Object} ability
+ * Registering an existing ability throws, which would abort a second bootstrap,
+ * so each one is checked first.
+ *
+ * @param {Object[]} abilities Ability definitions.
+ * @return {string[]} Names of the abilities, in order.
  */
-export function ensureAbility( ability ) {
-	if ( ! getAbility( ability.name ) ) {
-		registerAbility( ability );
+export function registerAbilities( abilities ) {
+	if ( ! getAbilityCategory( ABILITY_CATEGORY.slug ) ) {
+		registerAbilityCategory( ABILITY_CATEGORY.slug, {
+			label: ABILITY_CATEGORY.label,
+			description: ABILITY_CATEGORY.description,
+		} );
 	}
+
+	for ( const ability of abilities ) {
+		if ( ! getAbility( ability.name ) ) {
+			registerAbility( ability );
+		}
+	}
+
+	return abilities.map( ( ability ) => ability.name );
 }
