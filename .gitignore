@@ -9,3 +9,4 @@ test-results/
 playwright-report/
 playwright/.auth/
 /vendor/
+.phpunit.result.cache

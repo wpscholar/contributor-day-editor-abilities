@@ -37,6 +37,7 @@ Two goals:
 | `src/lib/shims/*` | Re-export `window.React` / `ReactDOM` / `ReactJSXRuntime` as ES modules |
 | `src/chat/transport.ts` | The AI SDK `ChatTransport`: one REST turn per round plus the tool loop |
 | `src/chat/transport.test.ts` | Vitest coverage of the tool loop; `vitest.config.ts` stubs the import-map externals |
+| `tests/phpunit/` | PHPUnit coverage of `chat-rest.php`: Brain Monkey for WordPress functions, the real AI Client DTOs |
 | `src/components/chat-panel.tsx` | The panel: `useChat`, transcript, composer |
 | `src/components/ui/*` | shadcn components — regenerate with the CLI, don't hand-edit |
 | `src/entries/*.tsx` | The two mounts (editor sidebar, standalone screen) |
@@ -127,6 +128,7 @@ npm run format       # wp-prettier --write over JS and TS (CSS is left alone)
 composer install     # PHP tooling: PHPCS (WPCS + PHPCompatibilityWP), PHPStan
 composer lint        # phpcs, then phpstan at level 8
 npm test             # Vitest unit tests (src/**/*.test.ts), no WordPress needed
+composer test        # PHPUnit unit tests (tests/phpunit), no WordPress needed; also npm run test:php
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
 npm run vendor       # Re-copy the WebMCP polyfill from node_modules
@@ -169,6 +171,7 @@ After chat changes, run `npm run build` first, then:
 - `js/` is type-checked through `tsconfig.js.json` (`checkJs`). Its bare imports map to the files in `paths`, and `js/types/globals.d.ts` declares the WordPress and WebMCP globals loosely. Keep JSDoc types real: the lint rules reject `Function` and `any`
 - PHPStan runs at level 8 with `treatPhpDocTypesAsCertain: false`, because filtered values and client JSON can be anything at runtime. `tests/phpstan/bootstrap.php` defines the plugin constants PHPStan cannot see. `wordpress/php-ai-client` is a dev dependency only so PHPStan knows the AI Client classes; core ships its own copy
 - Lint excludes `js/vendor/` and `src/components/ui/` (generated). Disable a rule inline only with a comment saying why
+- PHPUnit is pinned to **9.6**, the last version that runs on PHP 8.0. The tests have no WordPress: Brain Monkey stubs the functions in `tests/phpunit/TestCase.php` and `tests/phpunit/stubs.php` stands in for `WP_Error` and the REST classes. Anything that needs real roles or real screens (the permission callback against a subscriber, which screens enqueue what) belongs in e2e
 
 ## What not to do
 

@@ -8,6 +8,7 @@
     "dev": "vite build --watch --mode development",
     "typecheck": "node node_modules/typescript-native/bin/tsc --noEmit && node node_modules/typescript-native/bin/tsc -p tsconfig.js.json",
     "test": "vitest run",
+    "test:php": "composer test",
     "start": "wp-playground-cli start --skip-browser --wp=latest",
     "start:reset": "wp-playground-cli start --skip-browser --wp=latest --reset",
     "start:ai": "wp-playground-cli start --skip-browser --wp=latest --blueprint bin/blueprints/install-google-connector.json --define GOOGLE_API_KEY \"$GOOGLE_API_KEY\"",
