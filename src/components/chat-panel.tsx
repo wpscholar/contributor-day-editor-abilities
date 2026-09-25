@@ -42,22 +42,52 @@ import { WordPressAiTransport, type ChatUIMessage } from '@/chat/transport';
 
 const SUGGESTIONS_LIMIT = 3;
 
+/**
+ * What the assistant is doing while a reply is in progress, from the last
+ * thing in the transcript. The endpoint answers each round in one piece, so
+ * without this the panel would look idle between rounds.
+ */
+function progressLabel( messages: ChatUIMessage[] ): string {
+	const last = messages.at( -1 );
+	const part = last?.role === 'assistant' ? last.parts.at( -1 ) : undefined;
+
+	if ( part?.type === 'dynamic-tool' ) {
+		if ( part.state === 'approval-requested' ) {
+			return 'Waiting for your approval…';
+		}
+		if (
+			part.state === 'input-streaming' ||
+			part.state === 'input-available' ||
+			part.state === 'approval-responded'
+		) {
+			return `Running ${ part.toolName }…`;
+		}
+	}
+
+	return 'Thinking…';
+}
+
 /** Names of the WebMCP tools the current page offers. */
 function useToolNames(): string[] {
 	const [ names, setNames ] = React.useState< string[] >( [] );
 
 	React.useEffect( () => {
 		let active = true;
+		// Only the latest listing may land: an earlier, slower one would
+		// otherwise overwrite a newer answer.
+		let latest = 0;
 
 		const refresh = () => {
+			const request = ++latest;
+			const current = () => active && request === latest;
 			listTools()
 				.then( ( tools ) => {
-					if ( active ) {
+					if ( current() ) {
 						setNames( tools.map( ( tool ) => tool.name ) );
 					}
 				} )
 				.catch( () => {
-					if ( active ) {
+					if ( current() ) {
 						setNames( [] );
 					}
 				} );
@@ -118,6 +148,31 @@ export function ChatPanel( {
 	const toolNames = useToolNames();
 
 	const busy = status === 'submitted' || status === 'streaming';
+	// Without a connector every send would fail, so none is offered.
+	const canSend = chatConfig.available;
+
+	/*
+	 * A send that fails before the assistant says anything leaves only the
+	 * user's message behind. Put its text back in the composer, and take the
+	 * message out, so it can be sent again without typing it twice.
+	 */
+	React.useEffect( () => {
+		if ( ! error ) {
+			return;
+		}
+		const last = messages.at( -1 );
+		if ( last?.role !== 'user' ) {
+			return;
+		}
+		const text = last.parts
+			.filter( ( part ) => part.type === 'text' )
+			.map( ( part ) => part.text )
+			.join( '\n' );
+		setMessages( messages.slice( 0, -1 ) );
+		setInput( ( current ) => current || text );
+		// Only a new error should trigger this, not every message change.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ error ] );
 
 	const respondToApproval = React.useCallback(
 		( approvalId: string, approved: boolean ) =>
@@ -127,13 +182,13 @@ export function ChatPanel( {
 
 	const submit = React.useCallback( () => {
 		const text = input.trim();
-		if ( ! text || busy ) {
+		if ( ! text || busy || ! canSend ) {
 			return;
 		}
 		setInput( '' );
 		clearError();
 		void sendMessage( { text } );
-	}, [ busy, clearError, input, sendMessage ] );
+	}, [ busy, canSend, clearError, input, sendMessage ] );
 
 	return (
 		<div
@@ -150,6 +205,7 @@ export function ChatPanel( {
 				{ messages.length === 0 && (
 					<EmptyState
 						suggestions={ suggestions }
+						disabled={ ! canSend }
 						onPick={ ( suggestion ) => {
 							clearError();
 							void sendMessage( { text: suggestion } );
@@ -167,12 +223,14 @@ export function ChatPanel( {
 					/>
 				) ) }
 
-				{ status === 'submitted' && (
+				{ busy && (
 					<Marker role="status">
 						<MarkerIcon>
 							<Spinner />
 						</MarkerIcon>
-						<MarkerContent>Thinking…</MarkerContent>
+						<MarkerContent>
+							{ progressLabel( messages ) }
+						</MarkerContent>
 					</Marker>
 				) }
 
@@ -247,7 +305,7 @@ export function ChatPanel( {
 						<Button
 							type="submit"
 							size="sm"
-							disabled={ ! input.trim() }
+							disabled={ ! input.trim() || ! canSend }
 						>
 							<SendIcon />
 							Send
@@ -331,6 +389,14 @@ function ToolCount( {
 	 */
 	const [ copied, setCopied ] = React.useState( false );
 
+	React.useEffect( () => {
+		if ( ! copied ) {
+			return;
+		}
+		const timer = setTimeout( () => setCopied( false ), 1200 );
+		return () => clearTimeout( timer );
+	}, [ copied ] );
+
 	let label = 'No page tools';
 	if ( copied ) {
 		label = 'Copied!';
@@ -352,10 +418,7 @@ function ToolCount( {
 			onClick={ () => {
 				navigator.clipboard
 					.writeText( JSON.stringify( messages, null, 2 ) )
-					.then( () => {
-						setCopied( true );
-						setTimeout( () => setCopied( false ), 1200 );
-					} )
+					.then( () => setCopied( true ) )
 					.catch( () => {} );
 			} }
 		>
@@ -382,9 +445,11 @@ function ConnectorNotice() {
 
 function EmptyState( {
 	suggestions,
+	disabled,
 	onPick,
 }: {
 	suggestions: string[];
+	disabled: boolean;
 	onPick: ( suggestion: string ) => void;
 } ) {
 	return (
@@ -420,6 +485,7 @@ function EmptyState( {
 								variant="outline"
 								size="sm"
 								className="h-auto w-full justify-start py-2 text-left whitespace-normal"
+								disabled={ disabled }
 								onClick={ () => onPick( suggestion ) }
 							>
 								{ suggestion }

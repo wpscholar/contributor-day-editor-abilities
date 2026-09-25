@@ -663,4 +663,81 @@ describe( 'WordPressAiTransport nonce renewal', () => {
 		expect( errors ).toEqual( [ 'Nope.' ] );
 		expect( fetchMock ).toHaveBeenCalledTimes( 1 );
 	} );
+
+	it( 'goes back to native history for a new conversation', async () => {
+		const { requests } = respondWith(
+			textTurn( 'One', 'text' ),
+			textTurn( 'Two' )
+		);
+		const transport = new WordPressAiTransport();
+
+		await send( transport, [ userMessage( 'A' ) ] );
+		// After Clear, the next send has no assistant turn in its history.
+		await send( transport, [ userMessage( 'B' ) ] );
+
+		expect( requests()[ 1 ].historyMode ).toBe( 'native' );
+	} );
+
+	it( 'keeps calls apart when a provider reuses call IDs across rounds', async () => {
+		vi.mocked( callTool ).mockResolvedValue( {
+			isError: false,
+			value: { ok: true },
+			text: '',
+		} );
+		respondWith(
+			callTurn( { id: 'call_0', name: 'editor_get-editor-tree' } ),
+			callTurn( { id: 'call_0', name: 'editor_get-editor-tree' } ),
+			textTurn( 'Done.' )
+		);
+		const transport = new WordPressAiTransport();
+
+		const { message, wire } = await send( transport, [
+			userMessage( 'A' ),
+		] );
+
+		const toolParts = message.parts.filter(
+			( part ) => part.type === 'dynamic-tool'
+		);
+		expect( toolParts ).toHaveLength( 2 );
+		expect(
+			new Set( toolParts.map( ( part: any ) => part.toolCallId ) ).size
+		).toBe( 2 );
+		// The provider's own IDs are what the replay carries.
+		expect(
+			wire
+				.filter( ( turn ) => turn.role === 'tool' )
+				.map( ( turn: any ) => turn.responses[ 0 ].id )
+		).toEqual( [ 'call_0', 'call_0' ] );
+	} );
+
+	it( 'stops the loop when the reader cancels mid-round', async () => {
+		let finish: ( value: unknown ) => void = () => {};
+		vi.mocked( callTool ).mockImplementation(
+			() =>
+				new Promise( ( resolve ) => {
+					finish = resolve;
+				} ) as never
+		);
+		const { requests } = respondWith(
+			callTurn( { id: 'call_1', name: 'editor_get-editor-tree' } ),
+			textTurn( 'Done.' )
+		);
+		const transport = new WordPressAiTransport();
+
+		const stream = await transport.sendMessages( {
+			trigger: 'submit-message',
+			chatId: 'chat',
+			messageId: undefined,
+			messages: [ userMessage( 'A' ) ],
+			abortSignal: undefined,
+		} );
+		const reader = stream.getReader();
+		await vi.waitFor( () => expect( callTool ).toHaveBeenCalled() );
+		await reader.cancel();
+
+		// The loop stops instead of sending the tool result on.
+		finish( { isError: false, value: {}, text: '' } );
+		await new Promise( ( resolve ) => setTimeout( resolve, 20 ) );
+		expect( requests() ).toHaveLength( 1 );
+	} );
 } );

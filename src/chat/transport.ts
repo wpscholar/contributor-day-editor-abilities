@@ -212,13 +212,10 @@ export interface WordPressAiTransportOptions {
 	 * it describes the screen as it is now rather than as it was at mount.
 	 */
 	getContext?: () => Record< string, unknown >;
-	/** Whether to offer the page's WebMCP tools to the model. */
-	useTools?: boolean;
 }
 
 export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 	private readonly getContext: () => Record< string, unknown >;
-	private readonly useTools: boolean;
 
 	/**
 	 * How the server replayed tool calls last turn. Reporting it back keeps a
@@ -238,7 +235,6 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 
 	constructor( options: WordPressAiTransportOptions = {} ) {
 		this.getContext = options.getContext ?? ( () => ( {} ) );
-		this.useTools = options.useTools ?? true;
 	}
 
 	sendMessages( options: {
@@ -248,24 +244,30 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		messages: ChatUIMessage[];
 		abortSignal: AbortSignal | undefined;
 	} ): Promise< ReadableStream< UIMessageChunk< ChatMetadata > > > {
-		const { messages, abortSignal } = options;
+		const { messages } = options;
 
 		/*
-		 * Regenerating replaces the last assistant turn, so it must not be part
-		 * of the history the model is asked to continue from.
+		 * The reader can go away without Stop being pressed (the panel
+		 * unmounting, say). That has to end the loop too, or it would carry
+		 * on sending paid requests nobody reads, and enqueueing after it
+		 * would throw.
 		 */
-		const history =
-			options.trigger === 'regenerate-message' &&
-			messages.at( -1 )?.role === 'assistant'
-				? messages.slice( 0, -1 )
-				: messages;
+		let closed = false;
+		const cancelled = new AbortController();
+		const abortSignal = options.abortSignal
+			? AbortSignal.any( [ options.abortSignal, cancelled.signal ] )
+			: cancelled.signal;
 
 		const stream = new ReadableStream< UIMessageChunk< ChatMetadata > >( {
 			start: async ( controller ) => {
-				const emit: Emit = ( chunk ) => controller.enqueue( chunk );
+				const emit: Emit = ( chunk ) => {
+					if ( ! closed ) {
+						controller.enqueue( chunk );
+					}
+				};
 
 				try {
-					await this.run( history, emit, abortSignal );
+					await this.run( messages, emit, abortSignal );
 				} catch ( error ) {
 					if ( ! isAbort( error ) ) {
 						emit( {
@@ -274,8 +276,15 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 						} );
 					}
 				} finally {
-					controller.close();
+					if ( ! closed ) {
+						closed = true;
+						controller.close();
+					}
 				}
+			},
+			cancel: () => {
+				closed = true;
+				cancelled.abort();
 			},
 		} );
 
@@ -329,6 +338,12 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		emit: Emit,
 		abortSignal: AbortSignal | undefined
 	): Promise< void > {
+		// A conversation with no assistant turn yet is a new one, so it gets
+		// to try native history again, even after Clear on the same page.
+		if ( ! history.some( ( message ) => message.role === 'assistant' ) ) {
+			this.historyMode = 'native';
+		}
+
 		const wire: WireMessage[] = history.flatMap( toWireMessages );
 
 		// Only the turns produced now belong to the message being built.
@@ -352,7 +367,7 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 				messageMetadata: snapshot( pending ),
 			} );
 
-		const tools = this.useTools ? await listTools() : [];
+		const tools = await listTools();
 		const toolsByName = new Map(
 			tools.map( ( tool ) => [ tool.name, tool ] )
 		);
@@ -471,7 +486,12 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 		for ( const [ index, call ] of toolCalls.entries() ) {
 			abortSignal?.throwIfAborted();
 
-			const toolCallId = call.id ?? nextId( 'call' );
+			/*
+			 * The UI's own ID for this call. The provider's ID is only unique
+			 * within its round, and a provider that restarts its numbering
+			 * each round would otherwise overwrite earlier calls on screen.
+			 */
+			const toolCallId = nextId( 'call' );
 			const input = call.arguments ?? {};
 
 			/*
