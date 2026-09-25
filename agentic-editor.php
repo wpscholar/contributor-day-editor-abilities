@@ -60,6 +60,8 @@ function agentic_editor_is_supported_editor() {
  * Submodules are registered as dependencies rather than imported by relative
  * path so that WordPress resolves them through the import map, where each one
  * carries its own version query.
+ *
+ * @return void
  */
 function agentic_editor_enqueue_editor_abilities() {
 	if ( ! function_exists( 'wp_enqueue_script_module' ) || ! agentic_editor_is_supported_editor() ) {
@@ -134,6 +136,8 @@ add_action( 'enqueue_block_editor_assets', 'agentic_editor_enqueue_editor_abilit
  * The sidebar mount is the only editor-specific piece; it renders the shared
  * panel into a PluginSidebar. The classic script dependencies are what put
  * `wp.plugins`, `wp.element`, and `wp.editor` on the page for it to read.
+ *
+ * @return void
  */
 function agentic_editor_enqueue_editor_chat() {
 	if ( ! agentic_editor_is_supported_editor() ) {

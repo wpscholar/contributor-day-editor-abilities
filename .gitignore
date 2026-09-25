@@ -8,3 +8,4 @@ dist/
 test-results/
 playwright-report/
 playwright/.auth/
+/vendor/

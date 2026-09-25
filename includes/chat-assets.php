@@ -33,6 +33,8 @@ const AGENTIC_EDITOR_CHAT_BUILD_DIR = 'build/';
  *
  * Registration is separate from enqueueing so both the editor sidebar and the
  * standalone screen can pull in the same graph.
+ *
+ * @return void
  */
 function agentic_editor_register_chat_modules() {
 	if ( ! function_exists( 'wp_register_script_module' ) ) {
@@ -185,6 +187,8 @@ function agentic_editor_enqueue_chat( $module_id, $build_file, array $extra_deps
  *
  * The panel is compiled from src/, so a fresh checkout has no assets to load
  * and would otherwise just show nothing.
+ *
+ * @return void
  */
 function agentic_editor_chat_build_notice() {
 	if ( ! current_user_can( 'manage_options' ) || agentic_editor_chat_is_built() ) {

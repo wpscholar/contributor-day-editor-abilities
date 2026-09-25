@@ -19,6 +19,8 @@ const AGENTIC_EDITOR_CHAT_PAGE = 'agentic-editor-chat';
 
 /**
  * Add the chat screen under Tools.
+ *
+ * @return void
  */
 function agentic_editor_register_chat_admin_page() {
 	$hook = add_management_page(
@@ -37,6 +39,8 @@ add_action( 'admin_menu', 'agentic_editor_register_chat_admin_page' );
 
 /**
  * Mark the screen so the enqueue callback knows to load the chat.
+ *
+ * @return void
  */
 function agentic_editor_chat_admin_page_loaded() {
 	add_action( 'admin_enqueue_scripts', 'agentic_editor_enqueue_chat_admin_page' );
@@ -44,6 +48,8 @@ function agentic_editor_chat_admin_page_loaded() {
 }
 
 /**
+ * Mark the chat screen's body so its layout styles can target it.
+ *
  * @param string $classes Body classes.
  * @return string
  */
@@ -53,6 +59,8 @@ function agentic_editor_chat_admin_body_class( $classes ) {
 
 /**
  * Enqueue the standalone mount.
+ *
+ * @return void
  */
 function agentic_editor_enqueue_chat_admin_page() {
 	agentic_editor_enqueue_chat(
@@ -63,6 +71,8 @@ function agentic_editor_enqueue_chat_admin_page() {
 
 /**
  * Render the screen.
+ *
+ * @return void
  */
 function agentic_editor_render_chat_admin_page() {
 	?>

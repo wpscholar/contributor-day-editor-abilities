@@ -27,6 +27,8 @@ function agentic_editor_chat_capability() {
 }
 
 /**
+ * Whether the current user may use the chat.
+ *
  * @return bool
  */
 function agentic_editor_user_can_chat() {
@@ -63,10 +65,20 @@ function agentic_editor_chat_limits() {
 		'requests_per_minute' => 60,
 	);
 
-	$limits = apply_filters( 'agentic_editor_chat_limits', $defaults );
-	$limits = is_array( $limits ) ? array_merge( $defaults, $limits ) : $defaults;
+	$filtered = apply_filters( 'agentic_editor_chat_limits', $defaults );
+	$filtered = is_array( $filtered ) ? $filtered : array();
 
-	return array_map( 'absint', array_intersect_key( $limits, $defaults ) );
+	$limit = static function ( $key ) use ( $filtered, $defaults ) {
+		return isset( $filtered[ $key ] ) ? absint( $filtered[ $key ] ) : $defaults[ $key ];
+	};
+
+	return array(
+		'max_body_bytes'      => $limit( 'max_body_bytes' ),
+		'max_messages'        => $limit( 'max_messages' ),
+		'max_tools'           => $limit( 'max_tools' ),
+		'max_context_chars'   => $limit( 'max_context_chars' ),
+		'requests_per_minute' => $limit( 'requests_per_minute' ),
+	);
 }
 
 /**
@@ -281,6 +293,8 @@ function agentic_editor_chat_attach_context( array $messages, array $context ) {
 
 /**
  * Register the chat routes.
+ *
+ * @return void
  */
 function agentic_editor_register_chat_routes() {
 	register_rest_route(
@@ -379,7 +393,7 @@ function agentic_editor_handle_chat_request( WP_REST_Request $request ) {
 		return $within_limits;
 	}
 
-	$tool_map = array();
+	$tool_map     = array();
 	$declarations = agentic_editor_chat_build_declarations(
 		isset( $body['tools'] ) && is_array( $body['tools'] ) ? $body['tools'] : array(),
 		$tool_map
@@ -621,6 +635,8 @@ function agentic_editor_chat_prepare_schema( $schema ) {
 }
 
 /**
+ * Whether a schema fragment describes an array.
+ *
  * @param array<string, mixed> $schema Schema fragment.
  * @return bool
  */
@@ -702,8 +718,8 @@ function agentic_editor_chat_build_messages( array $messages, array $function_ma
 					break;
 
 				case 'tool':
-					$parts = array();
-					$lines = array();
+					$parts     = array();
+					$lines     = array();
 					$responses = isset( $message['responses'] ) && is_array( $message['responses'] )
 						? $message['responses']
 						: array();
@@ -948,7 +964,7 @@ function agentic_editor_chat_generation_error( WP_Error $error ) {
  * Shape a generation result for the browser.
  *
  * @param \WordPress\AiClient\Results\DTO\GenerativeAiResult $result   Result.
- * @param array<string, string>                             $tool_map Function name => tool name.
+ * @param array<string, string>                              $tool_map Function name => tool name.
  * @return array<string, mixed>
  */
 function agentic_editor_chat_format_result( $result, array $tool_map ) {
@@ -967,8 +983,8 @@ function agentic_editor_chat_format_result( $result, array $tool_map ) {
 			continue;
 		}
 
-		if ( $type->isFunctionCall() ) {
-			$call          = $part->getFunctionCall();
+		$call = $type->isFunctionCall() ? $part->getFunctionCall() : null;
+		if ( null !== $call ) {
 			$function_name = (string) $call->getName();
 			$tool_calls[]  = array(
 				'id'        => $call->getId(),
