@@ -2,8 +2,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { openEditor } from './open-editor';
 
 /**
- * The MCP-shaped result every tool call normalizes to, mirroring how
- * js/webmcp-tools.js#callTool reduces a raw WebMCP result for the chat panel.
+ * What js/webmcp-tools.js#callTool returns: the shape the chat panel sees.
  */
 export type ToolResult = {
 	isError: boolean;
@@ -32,38 +31,13 @@ export const test = base.extend< Fixtures >( {
 		): Promise< ToolResult > =>
 			editor.evaluate(
 				async ( { name, args } ) => {
-					const modelContext = ( document as any ).modelContext;
-					const tools = await modelContext.getTools();
-					const tool = tools.find(
-						( candidate: { name: string } ) =>
-							candidate.name === name
-					);
-					if ( ! tool ) {
-						throw new Error( `Tool not registered: ${ name }` );
-					}
-
-					const raw = await modelContext.executeTool(
-						tool,
-						JSON.stringify( args ?? {} )
-					);
-					const parsed =
-						typeof raw === 'string' ? JSON.parse( raw ) : raw;
-
-					const text = ( parsed?.content || [] )
-						.filter(
-							( block: { type: string } ) => block.type === 'text'
-						)
-						.map( ( block: { text: string } ) => block.text )
-						.join( '\n' );
-
-					return {
-						isError: !! parsed?.isError,
-						value:
-							parsed?.structuredContent !== undefined
-								? parsed.structuredContent
-								: text,
-						text,
-					};
+					// The chat's own consumer module, resolved through the
+					// page's import map, so tests call tools exactly the way
+					// the chat does. A variable keeps the bundler and
+					// TypeScript from resolving the bare specifier here.
+					const specifier = '@agentic-editor/webmcp-tools';
+					const tools = await import( specifier );
+					return tools.callTool( name, args );
 				},
 				{ name, args }
 			);
