@@ -28,7 +28,11 @@ export default defineConfig( {
 	workers: 4,
 	forbidOnly: !! process.env.CI,
 	retries: process.env.CI ? 1 : 0,
-	reporter: 'list',
+	// CI annotates failures on the pull request and keeps an HTML report as
+	// an artifact; locally, the list is enough.
+	reporter: process.env.CI
+		? [ [ 'github' ], [ 'list' ], [ 'html', { open: 'never' } ] ]
+		: 'list',
 	use: {
 		baseURL: `http://127.0.0.1:${ PORT }`,
 		storageState: STORAGE_STATE,

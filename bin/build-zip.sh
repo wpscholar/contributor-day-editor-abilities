@@ -6,6 +6,11 @@ PLUGIN_SLUG="agentic-editor"
 DIST_DIR="${ROOT}/dist"
 ZIP_PATH="${DIST_DIR}/${PLUGIN_SLUG}.zip"
 
+if ! command -v zip >/dev/null 2>&1; then
+	echo "error: the zip command is not installed. Install it (e.g. apt install zip) and try again." >&2
+	exit 1
+fi
+
 mkdir -p "${DIST_DIR}"
 rm -f "${ZIP_PATH}"
 
@@ -20,7 +25,7 @@ mkdir -p "${STAGE}/${PLUGIN_SLUG}"
 # The chat panel is compiled from src/, so the zip is only valid after a build.
 (cd "${ROOT}" && npm run build)
 
-cp "${ROOT}/agentic-editor.php" "${STAGE}/${PLUGIN_SLUG}/"
+cp "${ROOT}/agentic-editor.php" "${ROOT}/LICENSE" "${STAGE}/${PLUGIN_SLUG}/"
 cp -R "${ROOT}/js" "${STAGE}/${PLUGIN_SLUG}/js"
 cp -R "${ROOT}/css" "${STAGE}/${PLUGIN_SLUG}/css"
 cp -R "${ROOT}/includes" "${STAGE}/${PLUGIN_SLUG}/includes"

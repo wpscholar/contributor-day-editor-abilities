@@ -52,7 +52,8 @@ Two goals:
 | `css/chat-chrome.css` | Layout for the wp-admin containers *around* the panel |
 | `bin/build-zip.sh` | Packaging; runs `npm run build` and strips source maps |
 | `bin/vendor-webmcp-polyfill.sh` | Re-copies the vendored polyfill from `node_modules` |
-| `bin/blueprints/` | Playground blueprints; `install-google-connector.json` backs `npm run start:ai` |
+| `bin/blueprints/` | Playground blueprints; `install-google-connector.json` (pinned connector version) backs `npm run start:ai` |
+| `bin/start-ai.mjs` | `npm run start:ai`: passes `GOOGLE_API_KEY` to WordPress through a private temporary blueprint, never on the command line |
 | `tests/e2e/` | Playwright against Playground: abilities, bridge, chat REST, panel, permissions |
 | `tests/phpunit/` | PHPUnit coverage of `chat-rest.php`: Brain Monkey for WordPress functions, the real AI Client DTOs |
 | `eslint.config.mjs`, `phpcs.xml.dist`, `phpstan.neon.dist` | Lint configs; see "Linting and types" |
@@ -112,6 +113,7 @@ Two goals:
 - Never import `react`, `react-dom`, or `react/jsx-runtime` expecting them to be bundled. The Vite aliases point them at `src/lib/shims/`, which read WordPress's globals. Shipping a second React is the documented cause of the breakage that pushed React 19 out of WordPress 7.1
 - Because React is shared with the editor, the sidebar renders the panel as ordinary `PluginSidebar` children. Do not go back to mounting into a `ref`'d div
 - The shims list their exports by hand, since an ES module cannot re-export an object's properties dynamically. A dependency reaching for a React export nobody has needed yet fails at build time — add the name to the shim
+- After every `npx shadcn add`, review the diff to `src/styles/chat.css`. `components.json` points the CLI at it, and the CLI assumes a stylesheet that owns the page: it may add `@import "tailwindcss"` (which brings Preflight back) or put tokens on `:root` (which leaks them into wp-admin). Move tokens onto `.cdchat` and drop the import. The `hooks` alias (`@/hooks`) has no folder until a component needs one; the CLI creates it
 - WordPress is on **React 18.3**, so any shadcn component that pulls in the `@shadcn/react` package (`message-scroller`, `questionnaire`) cannot be used: that package requires React 19. `src/components/chat-scroller.tsx` is the stand-in for `MessageScroller`
 - `@agentic-editor/webmcp-tools` and `@agentic-editor/chat-config` are **externals**, resolved by the WordPress import map at runtime. Bundling the tool layer would give the chat a private, empty tool registry
 - Tailwind is imported **without Preflight** (`tailwindcss/theme.css` + `tailwindcss/utilities.css`, never `@import "tailwindcss"`). Preflight is a global reset and this stylesheet loads in wp-admin. The parts the components need are re-applied scoped to `.cdchat` in `src/styles/chat.css`
