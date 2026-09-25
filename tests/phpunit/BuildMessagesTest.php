@@ -108,6 +108,32 @@ class BuildMessagesTest extends TestCase {
 		$this->assertNull( $built[2]->getParts()[0]->getFunctionResponse() );
 	}
 
+	public function test_text_mode_leaves_thoughts_out_of_the_transcript() {
+		$built = agentic_editor_chat_build_messages(
+			array(
+				array(
+					'role'    => 'user',
+					'content' => 'Hi',
+				),
+				array(
+					'role'  => 'assistant',
+					'parts' => array(
+						array(
+							'channel' => 'thought',
+							'text'    => 'The user said hi.',
+						),
+						array( 'text' => 'Hello.' ),
+					),
+				),
+			),
+			array(),
+			'text'
+		);
+
+		$this->assertIsArray( $built );
+		$this->assertSame( 'Hello.', $built[1]->getParts()[0]->getText() );
+	}
+
 	public function test_text_mode_writes_missing_args_as_an_object() {
 		$built = agentic_editor_chat_build_messages(
 			array(

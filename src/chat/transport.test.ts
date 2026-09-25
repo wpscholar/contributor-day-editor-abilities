@@ -183,6 +183,28 @@ describe( 'WordPressAiTransport', () => {
 		] );
 	} );
 
+	it( 'shows the thinking ahead of the answer', async () => {
+		respondWith( {
+			...textTurn( 'Hello there.' ),
+			reasoning: 'The user said hi.',
+		} );
+
+		const { message } = await send( new WordPressAiTransport(), [
+			userMessage( 'Hi' ),
+		] );
+
+		const shown = message.parts.filter(
+			( part ) => part.type === 'reasoning' || part.type === 'text'
+		);
+		expect( shown ).toEqual( [
+			expect.objectContaining( {
+				type: 'reasoning',
+				text: 'The user said hi.',
+			} ),
+			expect.objectContaining( { type: 'text', text: 'Hello there.' } ),
+		] );
+	} );
+
 	it( 'runs a tool round, sends the result back, then finishes', async () => {
 		const { requests } = respondWith(
 			callTurn( {

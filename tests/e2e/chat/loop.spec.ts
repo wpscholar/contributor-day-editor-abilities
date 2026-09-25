@@ -135,7 +135,7 @@ test.describe( 'chat loop', () => {
 		await expect(
 			panel.getByRole( 'log' ).getByText( 'empty', { exact: true } )
 		).toHaveJSProperty( 'tagName', 'STRONG' );
-		await expect( panel.getByRole( 'status' ) ).toHaveCount( 0 );
+		await expect( panel.getByRole( 'status' ) ).toHaveText( 'Done' );
 
 		// The second request answered the call with the tool's real result.
 		const toolTurn = bodies[ 1 ].messages.at( -1 );
@@ -145,6 +145,77 @@ test.describe( 'chat loop', () => {
 			name: 'editor_get-editor-tree',
 			response: { count: 0, blocks: [] },
 		} );
+	} );
+
+	test( 'shows the thinking collapsed above the answer', async ( {
+		page,
+	} ) => {
+		await fakeChat( page, [
+			{
+				...textTurn( 'Hello.' ),
+				reasoning: 'The user said **hi**.',
+			},
+		] );
+		await pretendConnector( page );
+		await page.goto( '/wp-admin/tools.php?page=agentic-editor-chat' );
+		const panel = page.locator( '#agentic-editor-chat-root' );
+
+		await panel.getByLabel( 'Message' ).fill( 'Hi' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+
+		const log = panel.getByRole( 'log' );
+		await expect( log.getByText( 'Hello.' ) ).toBeVisible();
+		const thinking = log.locator( 'details', { hasText: 'Thinking' } );
+		await expect( thinking ).not.toHaveAttribute( 'open' );
+		await expect( log.getByText( 'hi', { exact: true } ) ).toBeHidden();
+
+		await thinking.getByText( 'Thinking' ).click();
+		await expect( log.getByText( 'hi', { exact: true } ) ).toHaveJSProperty(
+			'tagName',
+			'STRONG'
+		);
+		// Only the answer is read out, not the thinking.
+		await expect( panel.locator( 'p.sr-only' ) ).toHaveText( 'Hello.' );
+	} );
+
+	test( 'says when a reply was stopped or did not finish', async ( {
+		page,
+	} ) => {
+		await fakeChat( page, [
+			callTurn( 'c1', 'editor_get-editor-tree', {} ),
+			// Never answers, so the only way on is Stop.
+			() => new Promise( () => {} ),
+			callTurn( 'c2', 'editor_get-editor-tree', {} ),
+			{
+				status: 502,
+				body: {
+					code: 'agentic_editor_generation_failed',
+					message: 'The AI provider could not answer.',
+				},
+			},
+		] );
+		await pretendConnector( page );
+		await openEditor( page );
+		const panel = await openSidebar( page );
+		const status = panel.getByRole( 'status' );
+
+		await panel.getByLabel( 'Message' ).fill( 'Look around.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect( status ).toHaveText( 'Thinking…' );
+		await expect(
+			panel.getByRole( 'log' ).getByText( 'Done', { exact: true } )
+		).toBeVisible();
+		await panel.getByRole( 'button', { name: 'Stop' } ).click();
+		await expect( status ).toHaveText( 'Stopped' );
+
+		await panel.getByLabel( 'Message' ).fill( 'Try again.' );
+		await panel.getByRole( 'button', { name: 'Send' } ).click();
+		await expect(
+			panel
+				.getByRole( 'log' )
+				.getByText( 'The AI provider could not answer.' )
+		).toBeVisible();
+		await expect( status ).toHaveText( 'Did not finish' );
 	} );
 
 	test( 'waits for approval, says so, and reports a denial to the model', async ( {
@@ -204,6 +275,8 @@ test.describe( 'chat loop', () => {
 		await expect( panel.getByLabel( 'Message' ) ).toHaveValue(
 			'Hello there'
 		);
+		// No reply was started, so there is no reply to call unfinished.
+		await expect( panel.getByRole( 'status' ) ).toHaveCount( 0 );
 		// Only the composer holds it; the failed message's bubble is gone.
 		await expect(
 			panel.locator( 'span.whitespace-pre-wrap', {

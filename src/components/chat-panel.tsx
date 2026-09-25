@@ -9,10 +9,13 @@
 import * as React from 'react';
 import { useChat } from '@ai-sdk/react';
 import {
+	CircleCheckIcon,
+	CircleStopIcon,
 	MessageSquareIcon,
 	SendIcon,
 	SquareIcon,
 	Trash2Icon,
+	TriangleAlertIcon,
 } from 'lucide-react';
 import { chatConfig } from '@agentic-editor/chat-config';
 import { listTools, onToolsChanged } from '@agentic-editor/webmcp-tools';
@@ -37,10 +40,23 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { ChatScroller } from '@/components/chat-scroller';
 import { Markdown } from '@/components/markdown';
+import { Reasoning } from '@/components/reasoning';
 import { ToolCall } from '@/components/tool-call';
 import { WordPressAiTransport, type ChatUIMessage } from '@/chat/transport';
 
 const SUGGESTIONS_LIMIT = 3;
+
+/** How the latest reply ended. */
+type Ending = 'done' | 'stopped' | 'error';
+
+const ENDINGS: Record< Ending, { label: string; icon: React.ReactNode } > = {
+	done: { label: 'Done', icon: <CircleCheckIcon /> },
+	stopped: { label: 'Stopped', icon: <CircleStopIcon /> },
+	error: {
+		label: 'Did not finish',
+		icon: <TriangleAlertIcon className="text-destructive" />,
+	},
+};
 
 /**
  * The text of the assistant's latest finished reply, for screen readers.
@@ -149,6 +165,17 @@ export function ChatPanel( {
 		[]
 	);
 
+	/*
+	 * The progress line disappearing is easy to miss, so once a reply ends it
+	 * says how. It belongs to the reply that request produced: a send that
+	 * failed before any reply already says so in its error, and must not mark
+	 * an earlier, finished reply as unfinished.
+	 */
+	const [ ending, setEnding ] = React.useState< {
+		how: Ending;
+		messageId: string;
+	} | null >( null );
+
 	const {
 		messages,
 		sendMessage,
@@ -157,7 +184,18 @@ export function ChatPanel( {
 		setMessages,
 		error,
 		clearError,
-	} = useChat< ChatUIMessage >( { transport } );
+	} = useChat< ChatUIMessage >( {
+		transport,
+		onFinish: ( { message, isAbort, isError, isDisconnect } ) => {
+			let how: Ending = 'done';
+			if ( isAbort ) {
+				how = 'stopped';
+			} else if ( isError || isDisconnect ) {
+				how = 'error';
+			}
+			setEnding( { how, messageId: message.id } );
+		},
+	} );
 
 	const [ input, setInput ] = React.useState( '' );
 	const inputRef = React.useRef< HTMLTextAreaElement >( null );
@@ -203,8 +241,18 @@ export function ChatPanel( {
 		}
 		setInput( '' );
 		clearError();
+		setEnding( null );
 		void sendMessage( { text } );
 	}, [ busy, canSend, clearError, input, sendMessage ] );
+
+	const lastMessage = messages.at( -1 );
+	const shownEnding =
+		! busy &&
+		ending &&
+		lastMessage?.role === 'assistant' &&
+		lastMessage.id === ending.messageId
+			? ENDINGS[ ending.how ]
+			: null;
 
 	return (
 		<div
@@ -229,6 +277,7 @@ export function ChatPanel( {
 						disabled={ ! canSend }
 						onPick={ ( suggestion ) => {
 							clearError();
+							setEnding( null );
 							void sendMessage( { text: suggestion } );
 						} }
 					/>
@@ -244,17 +293,6 @@ export function ChatPanel( {
 					/>
 				) ) }
 
-				{ busy && (
-					<Marker role="status">
-						<MarkerIcon>
-							<Spinner />
-						</MarkerIcon>
-						<MarkerContent>
-							{ progressLabel( messages ) }
-						</MarkerContent>
-					</Marker>
-				) }
-
 				{ error && (
 					<Message>
 						<MessageContent>
@@ -263,6 +301,23 @@ export function ChatPanel( {
 							</Bubble>
 						</MessageContent>
 					</Message>
+				) }
+
+				{ /*
+				 * One element for both, so it stays in place and a screen
+				 * reader hears it change from working to finished.
+				 */ }
+				{ ( busy || shownEnding ) && (
+					<Marker role="status">
+						<MarkerIcon>
+							{ busy ? <Spinner /> : shownEnding?.icon }
+						</MarkerIcon>
+						<MarkerContent>
+							{ busy
+								? progressLabel( messages )
+								: shownEnding?.label }
+						</MarkerContent>
+					</Marker>
 				) }
 			</ChatScroller>
 
@@ -295,7 +350,13 @@ export function ChatPanel( {
 						event.preventDefault();
 						submit();
 					} }
-					className="max-h-40 min-h-16 resize-none"
+					/*
+					 * wp-admin's forms.css styles bare textareas outside any
+					 * cascade layer, so it beats every layered rule here,
+					 * whatever the specificity. Only an important utility
+					 * wins, so the shape is marked that way.
+					 */
+					className="max-h-40 min-h-16 resize-none! rounded-xl!"
 				/>
 
 				<div className="flex items-center gap-2">
@@ -310,6 +371,7 @@ export function ChatPanel( {
 							stop();
 							setMessages( [] );
 							clearError();
+							setEnding( null );
 						} }
 					>
 						<Trash2Icon />
@@ -377,6 +439,12 @@ function ChatMessage( {
 								</BubbleContent>
 							</Bubble>
 						);
+					}
+
+					if ( part.type === 'reasoning' ) {
+						return part.text.trim() ? (
+							<Reasoning key={ key } text={ part.text } />
+						) : null;
 					}
 
 					if ( part.type === 'dynamic-tool' ) {

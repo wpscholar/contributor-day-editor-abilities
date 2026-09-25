@@ -891,7 +891,9 @@ function agentic_editor_chat_parts_as_text( array $parts, array $tool_map ) {
 	$lines = array();
 
 	foreach ( $parts as $part ) {
-		if ( ! is_array( $part ) ) {
+		// The model's thinking was never said to anyone, so it has no place
+		// in a transcript of what was said.
+		if ( ! is_array( $part ) || ( isset( $part['channel'] ) && 'thought' === $part['channel'] ) ) {
 			continue;
 		}
 
@@ -921,10 +923,11 @@ function agentic_editor_chat_parts_as_text( array $parts, array $tool_map ) {
  * Whether a failure means the provider rejected the native tool call history.
  *
  * Gemini requires the thought signature it issued alongside a function call to
- * come back with that call. The AI Client models thought signatures but no
- * provider reads or writes them yet, so the signature is lost before this
- * plugin ever sees the response and cannot be replayed. Falling back to a text
- * transcript keeps multi-step tool use working until a provider carries them.
+ * come back with that call. Signatures are replayed whenever a part carries
+ * one, but only a provider plugin that reads and writes them (the Google
+ * connector from 1.2.0) supplies any; with an older one the signature is lost
+ * before this plugin sees the response. Falling back to a text transcript
+ * keeps multi-step tool use working either way.
  *
  * Gemini answers that with an HTTP 400, which core reports as
  * `prompt_client_error`. Only that kind of failure counts, so a server error or
@@ -985,6 +988,9 @@ function agentic_editor_chat_generation_error( WP_Error $error ) {
 /**
  * Shape a generation result for the browser.
  *
+ * Thought-channel text comes back as `reasoning`, apart from the answer. Only
+ * some providers return it, and only when thinking was requested.
+ *
  * @param \WordPress\AiClient\Results\DTO\GenerativeAiResult $result   Result.
  * @param array<string, string>                              $tool_map Function name => tool name.
  * @return array<string, mixed>
@@ -994,6 +1000,7 @@ function agentic_editor_chat_format_result( $result, array $tool_map ) {
 
 	$parts      = array();
 	$text       = '';
+	$reasoning  = array();
 	$tool_calls = array();
 
 	foreach ( $message->getParts() as $part ) {
@@ -1002,6 +1009,14 @@ function agentic_editor_chat_format_result( $result, array $tool_map ) {
 
 		if ( $type->isText() && $part->getChannel()->isContent() ) {
 			$text .= $part->getText();
+			continue;
+		}
+
+		if ( $type->isText() && $part->getChannel()->isThought() ) {
+			$thought = trim( (string) $part->getText() );
+			if ( '' !== $thought ) {
+				$reasoning[] = $thought;
+			}
 			continue;
 		}
 
@@ -1022,6 +1037,7 @@ function agentic_editor_chat_format_result( $result, array $tool_map ) {
 			'parts' => $parts,
 		),
 		'text'      => $text,
+		'reasoning' => implode( "\n\n", $reasoning ),
 		'toolCalls' => $tool_calls,
 		'meta'      => agentic_editor_chat_result_meta( $result ),
 	);

@@ -87,7 +87,7 @@ WordPress 7.0 keeps the AI Client server-side, so the chat is split across the t
 
 Conversation state lives entirely in the browser, so the endpoint is stateless and the same chat works on any screen. Assistant turns are replayed verbatim from the parts the previous response returned, which keeps provider-specific details such as function call IDs intact across rounds.
 
-Gemini is the exception: it requires the thought signature it issued with a function call to come back with that call, and WordPress 7.0's AI Client does not yet carry signatures out of a provider response, so there is nothing to replay. When a turn fails for that reason it is retried once with the tool calls and results replayed as a text transcript, and the browser reports the working mode back so the rest of the conversation skips the failed attempt.
+Gemini is the exception: it requires the thought signature it issued with a function call to come back with that call. The chat replays signatures whenever the provider plugin returns them, which the Google connector does from version 1.2.0, but an older connector drops them. When a turn fails for that reason it is retried once with the tool calls and results replayed as a text transcript, and the browser reports the working mode back so the rest of the conversation skips the failed attempt.
 
 ### Where the tools come from
 
@@ -165,6 +165,7 @@ src/                       # The chat panel (built with Vite into build/)
     chat-panel.tsx         # The panel: useChat, transcript, composer
     chat-scroller.tsx      # Transcript scrolling that follows without hijacking
     tool-call.tsx          # One tool call, inline in the assistant turn
+    reasoning.tsx          # The model's thinking, collapsed above the answer
     markdown.tsx           # Minimal Markdown → React elements
     ui/                    # shadcn components
   entries/                 # One per mount: editor sidebar, standalone screen

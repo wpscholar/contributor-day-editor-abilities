@@ -134,7 +134,8 @@ function ApprovalPrompt( {
 			aria-label="Approve this action"
 			className="flex flex-col gap-2 rounded-lg border border-border bg-muted px-2.5 py-2 text-xs"
 		>
-			<p className="m-0">
+			{ /* wp-admin's unlayered `p` margin beats a plain utility. */ }
+			<p className="m-0!">
 				{ reason ?? 'This action needs your approval before it runs.' }
 			</p>
 			<div className="flex gap-2">

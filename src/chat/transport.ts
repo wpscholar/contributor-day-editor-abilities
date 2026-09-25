@@ -57,6 +57,8 @@ interface ToolCall {
 interface TurnResponse {
 	message?: { role: string; parts: unknown[] };
 	text?: string;
+	/** The model's thinking, when the provider returned any. */
+	reasoning?: string;
 	toolCalls?: ToolCall[];
 	meta?: { provider?: string; model?: string };
 	historyMode?: HistoryMode;
@@ -400,6 +402,19 @@ export class WordPressAiTransport implements ChatTransport< ChatUIMessage > {
 			}
 			if ( payload.meta?.provider ) {
 				metadata.provider = payload.meta.provider;
+			}
+
+			// Thinking comes before what it led to, the way a provider
+			// that streams would have sent it.
+			if ( payload.reasoning ) {
+				const reasoningId = nextId( 'reasoning' );
+				emit( { type: 'reasoning-start', id: reasoningId } );
+				emit( {
+					type: 'reasoning-delta',
+					id: reasoningId,
+					delta: payload.reasoning,
+				} );
+				emit( { type: 'reasoning-end', id: reasoningId } );
 			}
 
 			if ( payload.text ) {

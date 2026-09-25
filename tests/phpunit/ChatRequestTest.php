@@ -149,6 +149,7 @@ class ChatRequestTest extends TestCase {
 		$data = $response->get_data();
 
 		$this->assertSame( 'Checking.', $data['text'] );
+		$this->assertSame( 'Thinking it over.', $data['reasoning'] );
 		$this->assertSame(
 			array(
 				array(

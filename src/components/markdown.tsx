@@ -8,6 +8,14 @@
 import * as React from 'react';
 import { parseMarkdown, type Inline } from '@/lib/markdown';
 
+/*
+ * wp-admin styles these elements by tag (`p`, `code`, `ul`, `li`,
+ * `blockquote`) from stylesheets outside any cascade layer, which beats every
+ * layered rule in the chat. The properties it sets are marked important here,
+ * the one way a utility wins; see the reset in `chat.css`.
+ */
+const TEXT = 'm-0! text-[length:inherit]! leading-[inherit]!';
+
 function renderInline( nodes: Inline[], keyPrefix: string ): React.ReactNode[] {
 	return nodes.map( ( node, position ) => {
 		const id = `${ keyPrefix }-i${ position }`;
@@ -17,7 +25,7 @@ function renderInline( nodes: Inline[], keyPrefix: string ): React.ReactNode[] {
 				return (
 					<code
 						key={ id }
-						className="rounded bg-muted px-1 py-0.5 text-[0.85em]"
+						className="m-0! rounded bg-muted! px-1! py-0.5! text-[0.85em]!"
 					>
 						{ node.text }
 					</code>
@@ -60,7 +68,9 @@ export function Markdown( { text }: { text: string } ) {
 					key={ id }
 					className="overflow-x-auto rounded-lg bg-muted p-3 text-xs"
 				>
-					<code>{ block.text }</code>
+					<code className="m-0! bg-transparent! p-0! text-[length:inherit]!">
+						{ block.text }
+					</code>
 				</pre>
 			);
 		}
@@ -71,7 +81,7 @@ export function Markdown( { text }: { text: string } ) {
 			return (
 				<p
 					key={ id }
-					className="font-semibold"
+					className={ `${ TEXT } font-semibold` }
 					role="heading"
 					aria-level={ block.level }
 				>
@@ -84,7 +94,7 @@ export function Markdown( { text }: { text: string } ) {
 			return (
 				<blockquote
 					key={ id }
-					className="border-l-2 border-border pl-3 text-muted-foreground"
+					className="m-0! border-l-2 border-border pl-3 text-muted-foreground"
 				>
 					{ block.lines.map( ( line, index ) => (
 						<React.Fragment key={ index }>
@@ -104,12 +114,12 @@ export function Markdown( { text }: { text: string } ) {
 					start={ block.start }
 					className={
 						block.ordered
-							? 'list-decimal space-y-1 pl-5'
-							: 'list-disc space-y-1 pl-5'
+							? 'm-0! list-decimal! pl-5!'
+							: 'm-0! list-disc! pl-5!'
 					}
 				>
 					{ block.items.map( ( item, index ) => (
-						<li key={ index }>
+						<li key={ index } className="mb-1! last:mb-0!">
 							{ renderInline( item, `${ id }-${ index }` ) }
 						</li>
 					) ) }
@@ -118,7 +128,7 @@ export function Markdown( { text }: { text: string } ) {
 		}
 
 		return (
-			<p key={ id }>
+			<p key={ id } className={ TEXT }>
 				{ block.lines.map( ( line, index ) => (
 					<React.Fragment key={ index }>
 						{ index > 0 && <br /> }
