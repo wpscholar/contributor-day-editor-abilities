@@ -191,6 +191,8 @@ The chat panel is compiled, so `npm run build` is required before it will appear
 | `npm run dev` | Rebuild the chat panel on change |
 | `npm run typecheck` | Type-check without emitting |
 | `npm test` | Run the Vitest unit tests |
+| `npm run lint` | ESLint with WordPress rules and formatting, then `composer lint` (PHPCS + PHPStan) |
+| `npm run format` | Reformat JS and TS with WordPress's Prettier |
 | `npm run test:e2e` | Run the Playwright suite against the `npm start` site. Set `WP_VERSION`, `PHP_VERSION` and `WP_PORT` to test another version on a separate site |
 | `npm start` | Start Playground with this plugin mounted |
 | `npm run start:reset` | Wipe stored site data and restart |

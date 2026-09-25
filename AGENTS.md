@@ -121,7 +121,11 @@ Two goals:
 npm install          # Required first; the chat panel is compiled
 npm run build        # Build the chat panel into build/ (gitignored)
 npm run dev          # Same, rebuilding on change
-npm run typecheck    # tsc --noEmit
+npm run typecheck    # TypeScript 7 over src/, tests/ and configs, plus checkJs over js/
+npm run lint         # ESLint (WordPress rules + wp-prettier), then composer lint
+npm run format       # wp-prettier --write over JS and TS (CSS is left alone)
+composer install     # PHP tooling: PHPCS (WPCS + PHPCompatibilityWP), PHPStan
+composer lint        # phpcs, then phpstan at level 8
 npm test             # Vitest unit tests (src/**/*.test.ts), no WordPress needed
 npm start            # Playground at http://127.0.0.1:9400 (plugin auto-mounted)
 npm run start:reset  # Reset Playground site data
@@ -157,6 +161,14 @@ After chat changes, run `npm run build` first, then:
 5. `window.React.version` is WordPress's React, and the console has no "two copies of React" or invalid-hook warnings
 6. wp-admin still looks like wp-admin on the screens the chat loads on — an `h1` on **Tools → AI Chat** stays 23px, which is the tell that Preflight has not leaked
 7. The composer stays on screen in the sidebar at a short viewport; the transcript scrolls, not the sidebar
+
+### Linting and types
+
+- **Two TypeScripts, on purpose.** `typescript` is pinned to 6.0 because `typescript-eslint` needs the JavaScript compiler API that TypeScript 7 removed. `typescript-native` is TypeScript 7 (an npm alias) and is what `npm run typecheck` runs. Do not bump `typescript` to 7 or point `typecheck` back at it
+- `prettier` is `wp-prettier` under an npm alias. Stock Prettier drops the spaces inside parentheses that WordPress style requires, so every file would reformat
+- `js/` is type-checked through `tsconfig.js.json` (`checkJs`). Its bare imports map to the files in `paths`, and `js/types/globals.d.ts` declares the WordPress and WebMCP globals loosely. Keep JSDoc types real: the lint rules reject `Function` and `any`
+- PHPStan runs at level 8 with `treatPhpDocTypesAsCertain: false`, because filtered values and client JSON can be anything at runtime. `tests/phpstan/bootstrap.php` defines the plugin constants PHPStan cannot see. `wordpress/php-ai-client` is a dev dependency only so PHPStan knows the AI Client classes; core ships its own copy
+- Lint excludes `js/vendor/` and `src/components/ui/` (generated). Disable a rule inline only with a comment saying why
 
 ## What not to do
 
