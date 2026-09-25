@@ -81,7 +81,7 @@ WordPress 7.0 keeps the AI Client server-side, so the chat is split across the t
 
 1. The browser lists the WebMCP tools the current page registers and sends them, with the conversation, to `POST /wp-json/agentic-editor/v1/chat`.
 2. PHP declares those tools as function declarations on `wp_ai_client_prompt()` and runs **one** model turn.
-3. If the model asked for tools, the browser runs them against the live page and posts the results back. This repeats until the model answers with text (8 rounds by default).
+3. If the model asked for tools, the browser runs them against the live page and posts the results back. This repeats until the model answers with text (25 rounds by default).
 
 Conversation state lives entirely in the browser, so the endpoint is stateless and the same chat works on any screen. Assistant turns are replayed verbatim from the parts the previous response returned, which keeps provider-specific details such as function call IDs intact across rounds.
 
@@ -131,8 +131,8 @@ Tool calls run without asking, since editor undo reverts them, except for three 
 | `agentic_editor_chat_capability` | Capability required to use the chat. Defaults to `edit_posts` |
 | `agentic_editor_chat_model_preference` | Preferred models, best first |
 | `agentic_editor_chat_system_instruction` | The full system instruction |
-| `agentic_editor_chat_max_tool_rounds` | Tool rounds per message, enforced by the browser and the endpoint. Defaults to `8` |
-| `agentic_editor_chat_limits` | Per-request limits: `max_body_bytes` (1 MB), `max_messages` (200), `max_tools` (128), `max_context_chars` (2000) and `requests_per_minute` per user (30). `0` turns a limit off |
+| `agentic_editor_chat_max_tool_rounds` | Tool rounds per message, enforced by the browser and the endpoint. Defaults to `25` |
+| `agentic_editor_chat_limits` | Per-request limits: `max_body_bytes` (1 MB), `max_messages` (500), `max_tools` (128), `max_context_chars` (2000) and `requests_per_minute` per user (60). `0` turns a limit off |
 
 The endpoint runs prompts against the site's connector, and the conversation, tool declarations and page context all come from the browser. Anyone with the chat capability can therefore spend the site's AI credit on prompts of their choosing, within the limits above. It is gated on a capability rather than on being logged in, and the default, `edit_posts`, includes Contributors. Narrow `agentic_editor_chat_capability` if that is too broad for your site.
 

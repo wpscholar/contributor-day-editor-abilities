@@ -130,7 +130,7 @@ test.describe( 'chat REST limits', () => {
 
 	test( 'rejects too many messages', async ( { editor } ) => {
 		const error = await postChat( editor, {
-			messages: Array.from( { length: 201 }, () => ( { role: 'user', content: 'Hi' } ) ),
+			messages: Array.from( { length: 501 }, () => ( { role: 'user', content: 'Hi' } ) ),
 		} );
 
 		expect( error ).toMatchObject( { code: 'agentic_editor_too_many_messages', status: 400 } );
@@ -146,16 +146,16 @@ test.describe( 'chat REST limits', () => {
 	} );
 
 	test( 'enforces the tool round limit server-side', async ( { editor } ) => {
-		const over = await postChat( editor, { messages: toolRounds( 9 ) } );
+		const over = await postChat( editor, { messages: toolRounds( 26 ) } );
 		expect( over ).toMatchObject( { code: 'agentic_editor_too_many_rounds', status: 400 } );
 
-		// Eight rounds is within the limit, so it fails later, on the file part.
-		const within = await postChat( editor, { messages: toolRounds( 8 ) } );
+		// 25 rounds is within the limit, so it fails later, on the file part.
+		const within = await postChat( editor, { messages: toolRounds( 25 ) } );
 		expect( within ).toMatchObject( { code: 'agentic_editor_invalid_message', status: 400 } );
 
 		// Rounds before the latest user message belong to earlier messages.
 		const earlier = await postChat( editor, {
-			messages: [ ...toolRounds( 9 ), { role: 'user', content: 'Next question' } ],
+			messages: [ ...toolRounds( 26 ), { role: 'user', content: 'Next question' } ],
 		} );
 		expect( earlier ).toMatchObject( { code: 'agentic_editor_invalid_message', status: 400 } );
 	} );

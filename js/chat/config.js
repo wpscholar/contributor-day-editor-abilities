@@ -13,7 +13,7 @@ const defaults = {
 	nonceUrl: '',
 	available: false,
 	connectorsUrl: null,
-	maxToolRounds: 8,
+	maxToolRounds: 25,
 	siteName: '',
 };
 

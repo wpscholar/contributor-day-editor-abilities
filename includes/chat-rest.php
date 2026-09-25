@@ -42,7 +42,7 @@ function agentic_editor_user_can_chat() {
  * @return int
  */
 function agentic_editor_chat_max_tool_rounds() {
-	return max( 1, (int) apply_filters( 'agentic_editor_chat_max_tool_rounds', 8 ) );
+	return max( 1, (int) apply_filters( 'agentic_editor_chat_max_tool_rounds', 25 ) );
 }
 
 /**
@@ -57,10 +57,10 @@ function agentic_editor_chat_max_tool_rounds() {
 function agentic_editor_chat_limits() {
 	$defaults = array(
 		'max_body_bytes'      => MB_IN_BYTES,
-		'max_messages'        => 200,
+		'max_messages'        => 500,
 		'max_tools'           => 128,
 		'max_context_chars'   => 2000,
-		'requests_per_minute' => 30,
+		'requests_per_minute' => 60,
 	);
 
 	$limits = apply_filters( 'agentic_editor_chat_limits', $defaults );

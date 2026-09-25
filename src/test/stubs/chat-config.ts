@@ -7,6 +7,6 @@ export const chatConfig: ChatConfig = {
 	nonceUrl: 'http://example.test/wp-admin/admin-ajax.php?action=rest-nonce',
 	available: true,
 	connectorsUrl: null,
-	maxToolRounds: 8,
+	maxToolRounds: 25,
 	siteName: 'Test',
 };
