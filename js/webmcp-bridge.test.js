@@ -311,6 +311,45 @@ describe( 'webmcp-bridge', () => {
 			] );
 		} );
 
+		it( 'still hands an already registered tool to local consumers', async () => {
+			abilities = { 'x/again': { name: 'x/again' } };
+			vi.stubGlobal( 'document', {
+				modelContext: modelContext( () => {
+					throw new Error( 'Tool "x_again" is already registered.' );
+				} ),
+			} );
+
+			const result = await bridgeAbilitiesToWebMCP( [ 'x/again' ] );
+
+			expect( result.registered ).toEqual( [ 'x/again' ] );
+			expect( mockedRemember ).toHaveBeenCalledWith(
+				expect.objectContaining( { name: 'x_again' } )
+			);
+		} );
+
+		it( 'does not mistake another failure mentioning “already” for success', async () => {
+			vi.spyOn( console, 'warn' ).mockImplementation( () => {} );
+			abilities = { 'x/y': { name: 'x/y' } };
+			vi.stubGlobal( 'document', {
+				modelContext: modelContext( () => {
+					throw new TypeError(
+						'Schema already uses an unsupported keyword.'
+					);
+				} ),
+			} );
+
+			const result = await bridgeAbilitiesToWebMCP( [ 'x/y' ] );
+
+			expect( result.registered ).toEqual( [] );
+			expect( result.errors ).toEqual( [
+				{
+					name: 'x/y',
+					message: 'Schema already uses an unsupported keyword.',
+				},
+			] );
+			expect( mockedRemember ).not.toHaveBeenCalled();
+		} );
+
 		it( 'retries without hints when a registration rejects them', async () => {
 			abilities = {
 				'x/y': {

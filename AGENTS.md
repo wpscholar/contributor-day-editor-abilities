@@ -33,7 +33,7 @@ Two goals:
 | `js/abilities/patterns.js` | Pattern and synced-pattern abilities |
 | `js/abilities/shared.js` | Category, `registerAbilities`, store access, lock and nesting checks |
 | `js/webmcp-bridge.js` | Maps abilities to WebMCP tools; feature-detects `document.modelContext` |
-| `js/webmcp-polyfill.js` | Reports on the WebMCP environment; installs nothing |
+| `js/webmcp-polyfill.js` | `getModelContext()`: finds `document.modelContext` (or the deprecated `navigator` alias); installs nothing |
 | `js/webmcp-tools.js` | Consumer side: list and call the page's tools |
 | `js/chat/config.js` | Reads the server config JSON; the only hand-written chat module left |
 | `js/types/globals.d.ts` | Loose types for the WordPress and WebMCP globals, for `checkJs` |

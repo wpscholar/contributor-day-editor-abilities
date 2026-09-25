@@ -169,49 +169,11 @@ function isAlreadyRegisteredError( error ) {
 	if ( error?.name === 'InvalidStateError' ) {
 		return true;
 	}
-	return /already/i.test( String( error?.message || error ) );
-}
-
-/**
- * @return {boolean}
- */
-function isDocumentLoaded() {
-	if ( typeof document === 'undefined' || ! document.readyState ) {
-		return true;
-	}
-	return document.readyState === 'complete';
-}
-
-/**
- * Wait briefly for WebMCP to become available (flag / document ready races).
- * Polling stops shortly after the document finishes loading so browsers without
- * WebMCP do not pay the full timeout on every editor load.
- *
- * @param {number} [timeoutMs]
- * @param {number} [graceAfterLoadMs]
- * @return {Promise<ModelContext|null>}
- */
-async function waitForModelContext( timeoutMs = 3000, graceAfterLoadMs = 500 ) {
-	const started = Date.now();
-	let loadedAt = isDocumentLoaded() ? started : null;
-
-	while ( Date.now() - started < timeoutMs ) {
-		const modelContext = getModelContext();
-		if ( modelContext?.registerTool ) {
-			return modelContext;
-		}
-
-		if ( loadedAt === null && isDocumentLoaded() ) {
-			loadedAt = Date.now();
-		}
-		if ( loadedAt !== null && Date.now() - loadedAt >= graceAfterLoadMs ) {
-			break;
-		}
-
-		await new Promise( ( resolve ) => window.setTimeout( resolve, 50 ) );
-	}
-
-	return getModelContext();
+	// Only a message about the tool itself existing counts; any other
+	// failure that happens to say "already" is a real failure.
+	return /already (been )?(registered|exists)|already a tool/i.test(
+		String( error?.message || error )
+	);
 }
 
 /**
@@ -255,28 +217,40 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
 		optional.annotations = annotations;
 	}
 
-	try {
-		await modelContext.registerTool( { ...tool, ...optional } );
-	} catch ( error ) {
-		if ( isAlreadyRegisteredError( error ) ) {
-			throw error;
-		}
-		// Older WebMCP builds reject descriptor keys they do not know about;
-		// a tool without hints beats no tool at all.
-		await modelContext.registerTool( tool );
-	}
-
 	// Keep the executor around so consumers on this page (the chat panel) can
 	// call the ability without depending on the optional executeTool() API.
 	// The approval reason is for this page's own consumers only; it is not a
 	// WebMCP descriptor key, so it is never passed to registerTool.
 	const approval = ability.meta?.agenticEditor?.approval;
-	rememberLocalTool( {
-		...tool,
-		...optional,
-		...( typeof approval === 'string' ? { approval } : {} ),
-	} );
+	const remember = () =>
+		rememberLocalTool( {
+			...tool,
+			...optional,
+			...( typeof approval === 'string' ? { approval } : {} ),
+		} );
 
+	try {
+		await modelContext.registerTool( { ...tool, ...optional } );
+	} catch ( error ) {
+		// Already on the page from an earlier bootstrap: still usable, so
+		// this page's consumers need its executor all the same.
+		if ( isAlreadyRegisteredError( error ) ) {
+			remember();
+			throw error;
+		}
+		// Older WebMCP builds reject descriptor keys they do not know about;
+		// a tool without hints beats no tool at all.
+		try {
+			await modelContext.registerTool( tool );
+		} catch ( retryError ) {
+			if ( isAlreadyRegisteredError( retryError ) ) {
+				remember();
+			}
+			throw retryError;
+		}
+	}
+
+	remember();
 	return true;
 }
 
@@ -287,7 +261,9 @@ async function registerAbilityAsWebMCPTool( abilityName, modelContext ) {
  * @return {Promise<{ supported: boolean, registered: string[], skipped: string[], errors: Object[] }>}
  */
 export async function bridgeAbilitiesToWebMCP( abilityNames ) {
-	const modelContext = await waitForModelContext();
+	// The polyfill is a classic script, so it has run before any module and
+	// there is nothing to wait for: no model context now means none at all.
+	const modelContext = getModelContext();
 	if ( ! modelContext?.registerTool ) {
 		return {
 			supported: false,

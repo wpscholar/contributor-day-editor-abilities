@@ -154,7 +154,7 @@ js/
     patterns.js            # Pattern and synced-pattern abilities
     shared.js              # Category, registration, store access, lock checks
   webmcp-bridge.js         # Abilities → document.modelContext.registerTool
-  webmcp-polyfill.js       # Reports on the WebMCP environment; installs nothing
+  webmcp-polyfill.js       # getModelContext(): finds the model context; installs nothing
   webmcp-tools.js          # Consumer side: list and call the page's tools
   chat/config.js           # Server config, read from the script module data tag
   vendor/webmcp-polyfill/  # Vendored standalone build of @mcp-b/webmcp-polyfill

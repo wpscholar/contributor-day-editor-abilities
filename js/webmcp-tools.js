@@ -187,17 +187,24 @@ function normalizeToolResult( raw ) {
 		};
 	}
 
-	const text = result.content
-		.filter( ( block ) => block?.type === 'text' )
-		.map( ( block ) => block.text )
-		.join( '\n' );
+	const textBlocks = result.content.filter(
+		( block ) => block?.type === 'text'
+	);
+	const text = textBlocks.map( ( block ) => block.text ).join( '\n' );
+
+	let value = result.structuredContent;
+	if ( value === undefined ) {
+		/*
+		 * structuredContent can only be an object, so a tool returning an
+		 * array or a number sends it as JSON text. Parse it back, so the model
+		 * gets the same structured value an object result would.
+		 */
+		value = textBlocks.length === 1 ? parseMaybeJson( text ) : text;
+	}
 
 	return {
 		isError: !! result.isError,
-		value:
-			result.structuredContent !== undefined
-				? result.structuredContent
-				: text,
+		value,
 		text,
 	};
 }
@@ -215,6 +222,31 @@ async function findRemoteTool( name ) {
 	}
 	const tools = await modelContext.getTools();
 	return ( tools || [] ).find( ( tool ) => tool?.name === name ) || null;
+}
+
+/**
+ * Whether the page is known not to have a tool, from whichever listing the
+ * browser offers. False when there is no way to tell.
+ *
+ * @param {string} name
+ * @return {Promise<boolean>}
+ */
+async function isKnownMissing( name ) {
+	const modelContext = getModelContext();
+	const testing =
+		typeof navigator !== 'undefined' ? navigator.modelContextTesting : null;
+
+	let tools = null;
+	if ( typeof modelContext?.getTools === 'function' ) {
+		tools = await modelContext.getTools();
+	} else if ( typeof testing?.listTools === 'function' ) {
+		tools = await testing.listTools();
+	}
+
+	return (
+		Array.isArray( tools ) &&
+		! tools.some( ( tool ) => tool?.name === name )
+	);
 }
 
 /**
@@ -237,9 +269,14 @@ export async function callTool( name, args = {} ) {
 		}
 	}
 
-	const modelContext = getModelContext();
-
 	try {
+		// A name the model made up is reported as such, whatever this
+		// browser can or cannot execute.
+		if ( await isKnownMissing( name ) ) {
+			return toolFailure( new Error( `Unknown tool: ${ name }` ) );
+		}
+
+		const modelContext = getModelContext();
 		if ( typeof modelContext?.executeTool === 'function' ) {
 			const tool = await findRemoteTool( name );
 			if ( ! tool ) {

@@ -301,6 +301,45 @@ describe( 'webmcp-tools', () => {
 			} );
 		} );
 
+		it( 'reports an unknown tool from modelContextTesting’s listing', async () => {
+			const executeTool = vi.fn();
+			vi.stubGlobal( 'navigator', {
+				modelContextTesting: {
+					listTools: async () => [ { name: 'real' } ],
+					executeTool,
+				},
+			} );
+			const tools = await loadTools();
+
+			const result = await tools.callTool( 'made_up' );
+
+			expect( result.text ).toBe( 'Unknown tool: made_up' );
+			expect( executeTool ).not.toHaveBeenCalled();
+		} );
+
+		it( 'gives an array or number result back as a value, not JSON text', async () => {
+			const tools = await loadTools();
+			tools.rememberLocalTool( {
+				name: 'list',
+				execute: async () => ( {
+					content: [ { type: 'text', text: '[\n  1,\n  2\n]' } ],
+				} ),
+			} );
+			tools.rememberLocalTool( {
+				name: 'prose',
+				execute: async () => ( {
+					content: [ { type: 'text', text: 'Moved it.' } ],
+				} ),
+			} );
+
+			expect( ( await tools.callTool( 'list' ) ).value ).toEqual( [
+				1, 2,
+			] );
+			expect( ( await tools.callTool( 'prose' ) ).value ).toBe(
+				'Moved it.'
+			);
+		} );
+
 		it( 'says so when the browser cannot execute tools', async () => {
 			const tools = await loadTools();
 
